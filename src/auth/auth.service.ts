@@ -1,0 +1,135 @@
+import {
+	BadRequestException,
+	Injectable,
+	InternalServerErrorException,
+	UnauthorizedException,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { JwtService, JwtSignOptions } from "@nestjs/jwt";
+import * as bcrypt from "bcryptjs";
+import { CreateUserDto } from "src/users/dto/create-user.dto";
+import { PrismaService } from "src/prisma/prisma.service";
+import { LoginDto } from "./dto/loginDto";
+import { RefreshDto } from "./dto/refreshDto";
+import { JwtPayload } from "./interfaces/jwt-payload.interface";
+
+@Injectable()
+export class AuthService {
+	constructor(
+		private readonly prisma: PrismaService,
+		private readonly jwtService: JwtService,
+		private readonly configService: ConfigService,
+	) {}
+
+	async register(createUserDto: CreateUserDto) {
+		try {
+			const { password, ...userDto } = createUserDto;
+			const hashedPassword = bcrypt.hashSync(password, 10);
+
+			const user = await this.prisma.user.create({
+				data: {
+					...userDto,
+					password: hashedPassword,
+				},
+			});
+
+			return user;
+		} catch (error) {
+			this.handleDBErrors(error);
+		}
+	}
+
+	async registerAdmin(createUserDto: CreateUserDto) {
+		try {
+			const { password, ...userDto } = createUserDto;
+			const hashedPassword = bcrypt.hashSync(password, 10);
+
+			const user = await this.prisma.user.create({
+				data: {
+					...userDto,
+					password: hashedPassword,
+				},
+			});
+
+			return user;
+		} catch (error) {
+			this.handleDBErrors(error);
+		}
+	}
+
+    // --- AQUÍ ESTÁ LA MODIFICACIÓN CLAVE ---
+	async login(loginDto: LoginDto) {
+		const { password, email } = loginDto;
+
+		const user = await this.prisma.user.findUnique({
+			where: { email },
+			select: {
+				email: true,
+				password: true,
+				id: true,
+				role: true,
+			},
+		});
+
+        // 1. Si no existe el usuario, lanzamos "Correo incorrecto"
+		if (!user) throw new UnauthorizedException("Correo incorrecto");
+		
+        // 2. Si la contraseña no coincide, lanzamos "Contraseña incorrecta"
+        if (!bcrypt.compareSync(password, user.password))
+			throw new UnauthorizedException("Contraseña incorrecta");
+
+		const accessToken = this.getJwtToken({ id: user.id }, { expiresIn: "2d" });
+		const refreshToken = this.getJwtToken({ id: user.id }, { expiresIn: "7d" });
+
+		return {
+			userId: user.id,
+			UserRole: user.role,
+			accessToken,
+			refreshToken,
+		};
+	}
+    // ---------------------------------------
+
+	private getJwtToken(payload: JwtPayload, options?: JwtSignOptions) {
+		const token = this.jwtService.sign(payload, options);
+		return token;
+	}
+
+	async refreshToken(refreshDto: RefreshDto) {
+		try {
+			const payload = this.jwtService.verify(refreshDto.refreshToken, {
+				secret: this.configService.get<string>("JWT_SECRET"),
+			});
+			const user = await this.prisma.user.findUnique({
+				where: { id: payload.id },
+				select: { email: true, password: true, id: true },
+			});
+
+			if (!user) throw new UnauthorizedException("Invalid refresh token");
+			const accessToken = this.getJwtToken(
+				{ id: user.id },
+				{ expiresIn: "2d" },
+			);
+			const refreshToken = this.getJwtToken(
+				{ id: user.id },
+				{ expiresIn: "7d" },
+			);
+
+			return {
+				...user,
+				accessToken,
+				refreshToken,
+			};
+		} catch (error) {
+			throw error;
+		}
+	}
+	private handleDBErrors(error): never {
+		if (error.code === "23505") throw new BadRequestException(error.detail);
+		if (error.code?.startsWith("P")) {
+			throw error; 
+		}
+
+		throw new InternalServerErrorException("Please check server logs");
+	}
+}
