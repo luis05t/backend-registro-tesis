@@ -19,13 +19,10 @@ async function bootstrap() {
 		}),
 	);
 
-    // --- CORRECCIÓN AQUÍ ---
-    // Usamos process.cwd() para asegurar que busque la carpeta 'uploads' 
-    // en la raíz de tu proyecto, donde está el package.json
+    // Servir archivos estáticos (imágenes)
     app.useStaticAssets(join(process.cwd(), 'uploads'), {
         prefix: '/uploads/',
     });
-    // -----------------------
 
 	app.setGlobalPrefix("api");
 
@@ -42,11 +39,14 @@ async function bootstrap() {
 		useGlobalPrefix: true,
 	});
 
+    // CONFIGURACIÓN CORS PARA TÚNELES
 	app.enableCors({
-		origin: true,
+		origin: true, // Permite cualquier origen (necesario para el túnel dinámico)
 		credentials: true,
+        methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
 	});
 
+    // Escuchar en 0.0.0.0 es vital para que VS Code reenvíe el puerto
 	await app.listen(process.env.PORT ?? 8000, "0.0.0.0").catch((err) => {
 		console.error(err);
 	});
