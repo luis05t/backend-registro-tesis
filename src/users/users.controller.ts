@@ -33,7 +33,6 @@ export class UsersController {
     return this.usersService.create(createUserDto);
   }
 
-  // --- CORRECCIÓN: Usamos @Query para permitir ?limit=1000 ---
   @Get()
   findAll(@Query() paginationDto?: PaginationDto) {
     return this.usersService.findAll(paginationDto);
@@ -68,7 +67,6 @@ export class UsersController {
       new ParseFilePipe({
         validators: [
           new MaxFileSizeValidator({ maxSize: 1024 * 1024 * 5 }), // 5MB
-          new FileTypeValidator({ fileType: '.(png|jpeg|jpg|webp)' }),
         ],
         fileIsRequired: false
       }),

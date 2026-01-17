@@ -12,5 +12,5 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   })
   @IsOptional()
   @IsString()
-  image?: string; // Este es el campo que guardará la ruta en la base de datos
+  image?: string;
 }
