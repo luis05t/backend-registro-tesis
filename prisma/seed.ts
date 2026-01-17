@@ -135,7 +135,8 @@ async function main() {
         "Enfermería",
         "Gastronomía",
         "Turismo",
-        "Diseño Gráfico"
+        "Diseño Gráfico",
+        "Administracion"
     ];
 
     const careers = await Promise.all(

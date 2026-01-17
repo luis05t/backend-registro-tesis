@@ -1,4 +1,10 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { 
+  Injectable, 
+  ForbiddenException, 
+  NotFoundException, 
+  ConflictException, // <--- 1. ASEGÚRATE DE IMPORTAR ESTO
+  InternalServerErrorException 
+} from '@nestjs/common';
 import { CreateSkillDto } from './dto/create-skill.dto';
 import { UpdateSkillDto } from './dto/update-skill.dto';
 import { BaseService } from 'src/prisma/base.service';
@@ -13,23 +19,32 @@ export class SkillsService extends BaseService<SkillsModel, CreateSkillDto, Upda
     super(prismaService, { name: 'skills' });
   }
 
+  // --- AQUÍ ESTÁ LA CORRECCIÓN ---
   async createWithUser(createSkillDto: CreateSkillDto, user: User) {
-    // 1. Extraemos 'createdBy' para que NO se envíe a Prisma dentro de 'data'
-    //    ya que choca con la definición de la relación.
     const { createdBy, ...rest } = createSkillDto;
 
-    return this.prismaService.skills.create({
-      data: {
-        ...rest,
-        // Casteamos el JSON para evitar error de tipos
-        details: rest.details as Prisma.InputJsonValue,
-        // Asignamos manualmente el ID del usuario creador
-        createdById: user.id,
-      },
-    });
+    try {
+      // Intentamos crear la habilidad
+      return await this.prismaService.skills.create({
+        data: {
+          ...rest,
+          details: rest.details as Prisma.InputJsonValue,
+          createdById: user.id,
+        },
+      });
+    } catch (error) {
+      // Si falla, verificamos si es por duplicado (código P2002)
+      if (error.code === 'P2002') {
+        throw new ConflictException('Habilidad ya agregada');
+      }
+      // Si es otro error, lanzamos error interno
+      throw new InternalServerErrorException('Error al crear la habilidad');
+    }
   }
+  // -------------------------------
 
   async updateWithPermission(id: string, updateSkillDto: UpdateSkillDto, user: User) {
+    // ... (el resto de tu código sigue igual)
     const skill = await this.prismaService.skills.findUnique({ where: { id } });
 
     if (!skill) {
@@ -49,7 +64,6 @@ export class SkillsService extends BaseService<SkillsModel, CreateSkillDto, Upda
       throw new ForbiddenException('No tienes permiso para editar esta habilidad.');
     }
 
-    // 2. Extraemos 'createdBy' también aquí
     const { createdBy, ...rest } = updateSkillDto;
 
     return this.prismaService.skills.update({

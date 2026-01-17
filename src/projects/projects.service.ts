@@ -1,103 +1,130 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { BaseService } from 'src/prisma/base.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
-import { BaseService } from 'src/prisma/base.service';
-import { ProjectModel } from 'src/prisma/generated/models';
+import { ProjectModel } from 'src/prisma/generated/models'; 
 import { PrismaService } from 'src/prisma/prisma.service';
-import { PaginatedResult, PaginationDto } from 'src/Libs/common';
+import { UserModel as User } from 'src/prisma/generated/models/User';
+import { PaginationDto } from 'src/Libs/common';
 
 @Injectable()
 export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto, UpdateProjectDto> {
   constructor(private readonly prismaService: PrismaService) {
-    super(prismaService, { name: 'project' });
+    super(prismaService, { name: 'project' }); 
   }
 
-  /**
-   * Sobrescribe findAll para incluir información del usuario creador
-   */
-  async findAll(paginationDto?: PaginationDto): Promise<PaginatedResult<ProjectModel>> {
-    return this.findManyPaginated(
-      {
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
+  // Sobrescribimos findAll para traer relaciones y cumplir con el tipo PaginatedResult
+  async findAll(paginationDto?: PaginationDto) {
+    const { limit = 10, page = 1, order = 'desc' } = paginationDto || {};
+    const skip = (page - 1) * limit;
+    
+    const total = await this.prismaService.project.count();
+    
+    const data = await this.prismaService.project.findMany({
+      skip: skip,
+      take: limit,
+      include: {
+        user: true, 
+        projectSkills: true, 
+      },
+      orderBy: { createdAt: order }
+    });
+
+    const totalPages = Math.ceil(total / limit);
+
+    // CORRECCIÓN: Ajustamos la respuesta para que coincida con el tipo 'PaginatedResult' del BaseService
+    return {
+      data,
+      meta: {
+        total,
+        pagination: {
+          page,
+          limit,
+          order: order as "asc" | "desc"
+        },
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      }
+    };
+  }
+
+  async findOne(id: string) {
+    const project = await this.prismaService.project.findUnique({
+      where: { id },
+      include: {
+        user: true,
+        projectSkills: true,
+      },
+    });
+
+    if (!project) {
+      throw new NotFoundException(`Proyecto con ID ${id} no encontrado`);
+    }
+    return project;
+  }
+
+  async createWithUser(createProjectDto: CreateProjectDto, user: User) {
+    const { startDate, endDate, ...rest } = createProjectDto;
+
+    return this.prismaService.project.create({
+      data: {
+        ...rest,
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
+        // CORRECCIÓN: Usamos 'createdBy' en lugar de 'createdById'
+        createdBy: user.id, 
+      },
+    });
+  }
+
+  async findBySkill(skillId: string) {
+    return this.prismaService.project.findMany({
+      where: {
+        projectSkills: {
+          some: {
+            skillId: skillId,
           },
         },
       },
-      paginationDto,
-    );
+      include: {
+        user: true,
+        projectSkills: true,
+      },
+    });
   }
 
-  /**
-   * Sobrescribe findOne para incluir información del usuario creador
-   */
-  async findOne(id: string): Promise<ProjectModel | null> {
-    try {
-      const result = await this.prismaService.project.findUnique({
-        where: { id },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-          career: true,
-          projectSkills: {
-            include: {
-              skill: true,
-            },
-          },
-          userProjects: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                },
-              },
-            },
-          },
-        },
-      });
-      if (!result) {
-        throw new Error(`Project with id ${id} not found`);
-      }
-      return result;
-    } catch (error) {
-      throw error;
-    }
-  }
+  async updateWithPermission(id: string, updateProjectDto: UpdateProjectDto, user: User) {
+    const project = await this.prismaService.project.findUnique({ where: { id } });
 
-  async findProjectsBySkillId(skillId: string) {
-    try {
-      const projects = await this.prismaService.project.findMany({
-        where: {
-          projectSkills: {
-            some: {
-              skillId: skillId,
-            },
-          },
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-        },
-      });
-      return projects;
-    } catch (error) {
-      throw error;
+    if (!project) {
+      throw new NotFoundException(`Proyecto con ID ${id} no encontrado`);
     }
+
+    const userWithRole = await this.prismaService.user.findUnique({
+      where: { id: user.id },
+      include: { role: true },
+    });
+
+    const roleName = userWithRole?.role?.name?.toLowerCase() || '';
+    const isAdmin = roleName.includes('admin');
+    
+    // CORRECCIÓN: Usamos 'createdBy' para validar al dueño
+    const isOwner = project.createdBy === user.id;
+
+    if (!isAdmin && !isOwner) {
+      throw new ForbiddenException('No tienes permiso para editar este proyecto.');
+    }
+
+    const { startDate, endDate, ...rest } = updateProjectDto;
+
+    return this.prismaService.project.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(startDate && { startDate: new Date(startDate) }),
+        ...(endDate && { endDate: new Date(endDate) }),
+      },
+    });
   }
 }

@@ -1,11 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+// 1. Asegúrate de importar 'Query' desde @nestjs/common
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { SkillsService } from './skills.service';
 import { CreateSkillDto } from './dto/create-skill.dto';
 import { UpdateSkillDto } from './dto/update-skill.dto';
 import { ApiTags } from '@nestjs/swagger';
 import { PaginationDto } from 'src/Libs/common';
 import { Auth, GetUser } from 'src/auth/decorators';
-// CORRECCIÓN AQUÍ: Importamos UserModel y lo renombramos como User
 import { UserModel as User } from 'src/prisma/generated/models/User';
 
 @ApiTags('Skills')
@@ -22,8 +22,9 @@ export class SkillsController {
     return this.skillsService.createWithUser(createSkillDto, user);
   }
 
+  // CORRECCIÓN AQUÍ: Cambiamos @Param por @Query
   @Get()
-  findAll(@Param() paginationDto?: PaginationDto) {
+  findAll(@Query() paginationDto?: PaginationDto) {
     return this.skillsService.findAll(paginationDto);
   }
 
