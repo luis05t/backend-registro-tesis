@@ -12,7 +12,6 @@ import { UserModel as User } from 'src/prisma/generated/models/User';
 export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
-  // 1. Crear proyecto (Usa createWithUser del servicio)
   @Post()
   @Auth()
   create(
@@ -22,25 +21,25 @@ export class ProjectsController {
     return this.projectsService.createWithUser(createProjectDto, user);
   }
 
-  // 2. Obtener todos (CORREGIDO: Usa @Query para aceptar ?limit=1000)
   @Get()
-  findAll(@Query() paginationDto?: PaginationDto) {
-    return this.projectsService.findAll(paginationDto);
+  @Auth()
+  findAll(
+    @Query() paginationDto: PaginationDto,
+    @GetUser() user: User
+  ) {
+    return this.projectsService.findAll(paginationDto, user);
   }
 
-  // 3. Buscar por Skill (Funcionalidad extra que tenías)
   @Get('skill/:skillId')
   findBySkill(@Param('skillId') skillId: string) {
      return this.projectsService.findBySkill(skillId);
   }
 
-  // 4. Obtener uno por ID
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.projectsService.findOne(id);
   }
 
-  // 5. Actualizar (Usa updateWithPermission del servicio)
   @Patch(':id')
   @Auth()
   update(
@@ -51,7 +50,6 @@ export class ProjectsController {
     return this.projectsService.updateWithPermission(id, updateProjectDto, user);
   }
 
-  // 6. Eliminar
   @Delete(':id')
   @Auth()
   remove(@Param('id') id: string) {

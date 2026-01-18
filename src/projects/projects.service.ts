@@ -13,16 +13,44 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
     super(prismaService, { name: 'project' }); 
   }
 
-  // Sobrescribimos findAll para traer relaciones y cumplir con el tipo PaginatedResult
-  async findAll(paginationDto?: PaginationDto) {
+  // MODIFICADO: Lógica de permisos de visualización
+  async findAll(paginationDto?: PaginationDto, user?: User) {
     const { limit = 10, page = 1, order = 'desc' } = paginationDto || {};
     const skip = (page - 1) * limit;
     
-    const total = await this.prismaService.project.count();
+    let whereCondition: any = {};
+
+    if (user) {
+      const userWithRole = await this.prismaService.user.findUnique({
+        where: { id: user.id },
+        include: { role: true },
+      });
+
+      const roleName = userWithRole?.role?.name?.toLowerCase() || '';
+      const isAdmin = roleName.includes('admin');
+
+      // Si NO es Admin:
+      // Puede ver proyectos 'en progreso' (validados) de TODOS
+      // Y TAMBIÉN sus propios proyectos 'pendientes' (para que no desaparezcan para él)
+      if (!isAdmin) {
+        whereCondition = {
+          OR: [
+            { status: { not: 'pendiente' } }, // Lo público (10 proyectos)
+            { createdBy: user.id }            // Lo mío (3 pendientes)
+          ]
+        };
+      }
+      // Si es Admin, ve TODO (13 proyectos)
+    }
+
+    const total = await this.prismaService.project.count({
+      where: whereCondition
+    });
     
     const data = await this.prismaService.project.findMany({
       skip: skip,
       take: limit,
+      where: whereCondition, 
       include: {
         user: true, 
         projectSkills: true, 
@@ -32,7 +60,6 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
 
     const totalPages = Math.ceil(total / limit);
 
-    // CORRECCIÓN: Ajustamos la respuesta para que coincida con el tipo 'PaginatedResult' del BaseService
     return {
       data,
       meta: {
@@ -70,9 +97,9 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
     return this.prismaService.project.create({
       data: {
         ...rest,
+        status: 'pendiente', // Nace pendiente
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
-        // CORRECCIÓN: Usamos 'createdBy' en lugar de 'createdById'
         createdBy: user.id, 
       },
     });
@@ -109,7 +136,6 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
     const roleName = userWithRole?.role?.name?.toLowerCase() || '';
     const isAdmin = roleName.includes('admin');
     
-    // CORRECCIÓN: Usamos 'createdBy' para validar al dueño
     const isOwner = project.createdBy === user.id;
 
     if (!isAdmin && !isOwner) {
