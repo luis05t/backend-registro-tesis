@@ -29,6 +29,7 @@ export class BaseService<T, CreateDto, UpdateDto> {
 
 	/**
 	 * Método principal de paginación flexible
+	 * CORREGIDO: Usa Promise.all en lugar de $transaction para evitar bloqueos
 	 */
 	async findManyPaginated(
 		options: FindManyOptions = {},
@@ -68,7 +69,8 @@ export class BaseService<T, CreateDto, UpdateDto> {
 				...(options.select && { select: options.select }),
 			};
 
-			const [result, totalCount] = await this.prisma.$transaction([
+			// CAMBIO IMPORTANTE: Promise.all libera la conexión más rápido
+			const [result, totalCount] = await Promise.all([
 				this.prisma[this.model.name].findMany(findManyArgs),
 				this.prisma[this.model.name].count({
 					where: whereClause,
