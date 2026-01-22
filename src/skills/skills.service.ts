@@ -2,7 +2,7 @@ import {
   Injectable, 
   ForbiddenException, 
   NotFoundException, 
-  ConflictException, // <--- 1. ASEGÚRATE DE IMPORTAR ESTO
+  ConflictException, 
   InternalServerErrorException 
 } from '@nestjs/common';
 import { CreateSkillDto } from './dto/create-skill.dto';
@@ -19,7 +19,6 @@ export class SkillsService extends BaseService<SkillsModel, CreateSkillDto, Upda
     super(prismaService, { name: 'skills' });
   }
 
-  // --- AQUÍ ESTÁ LA CORRECCIÓN ---
   async createWithUser(createSkillDto: CreateSkillDto, user: User) {
     const { createdBy, ...rest } = createSkillDto;
 
@@ -41,10 +40,8 @@ export class SkillsService extends BaseService<SkillsModel, CreateSkillDto, Upda
       throw new InternalServerErrorException('Error al crear la habilidad');
     }
   }
-  // -------------------------------
 
   async updateWithPermission(id: string, updateSkillDto: UpdateSkillDto, user: User) {
-    // ... (el resto de tu código sigue igual)
     const skill = await this.prismaService.skills.findUnique({ where: { id } });
 
     if (!skill) {
@@ -90,5 +87,21 @@ export class SkillsService extends BaseService<SkillsModel, CreateSkillDto, Upda
     }catch (error) {
       throw error;
     }
- }
+  }
+
+  // --- NUEVO: Sobrescribimos el método remove para limpiar relaciones ---
+  async remove(id: string): Promise<SkillsModel> {
+    try {
+      // 1. Primero eliminamos las referencias en la tabla intermedia (projectSkills)
+      await this.prismaService.projectSkills.deleteMany({
+        where: { skillId: id }
+      });
+
+      // 2. Luego llamamos al método remove original del BaseService para borrar la Skill
+      return super.remove(id);
+    } catch (error) {
+      // Si ocurre algo inesperado, relanzamos el error
+      throw error;
+    }
+  }
 }

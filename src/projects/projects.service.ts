@@ -13,7 +13,6 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
     super(prismaService, { name: 'project' }); 
   }
 
-  // MODIFICADO: Lógica de permisos de visualización
   async findAll(paginationDto?: PaginationDto, user?: User) {
     const { limit = 10, page = 1, order = 'desc' } = paginationDto || {};
     const skip = (page - 1) * limit;
@@ -29,18 +28,14 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       const roleName = userWithRole?.role?.name?.toLowerCase() || '';
       const isAdmin = roleName.includes('admin');
 
-      // Si NO es Admin:
-      // Puede ver proyectos 'en progreso' (validados) de TODOS
-      // Y TAMBIÉN sus propios proyectos 'pendientes' (para que no desaparezcan para él)
       if (!isAdmin) {
         whereCondition = {
           OR: [
-            { status: { not: 'pendiente' } }, // Lo público (10 proyectos)
-            { createdBy: user.id }            // Lo mío (3 pendientes)
+            { status: { not: 'pendiente' } }, 
+            { createdBy: user.id }            
           ]
         };
       }
-      // Si es Admin, ve TODO (13 proyectos)
     }
 
     const total = await this.prismaService.project.count({
@@ -54,6 +49,7 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       include: {
         user: true, 
         projectSkills: true, 
+        career: true, 
       },
       orderBy: { createdAt: order }
     });
@@ -82,6 +78,7 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       include: {
         user: true,
         projectSkills: true,
+        career: true,
       },
     });
 
@@ -91,19 +88,32 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
     return project;
   }
 
+  // --- ASEGÚRATE DE QUE ESTO ESTÉ ASÍ ---
   async createWithUser(createProjectDto: CreateProjectDto, user: User) {
     const { startDate, endDate, ...rest } = createProjectDto;
 
     return this.prismaService.project.create({
       data: {
         ...rest,
-        status: 'pendiente', // Nace pendiente
+        status: 'pendiente', 
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
-        createdBy: user.id, 
+        createdBy: user.id,
+        // Creamos la relación aquí mismo para evitar errores de red
+        userProjects: {
+          create: {
+            userId: user.id
+          }
+        }
       },
+      include: {
+        user: true,
+        projectSkills: true,
+        career: true, 
+      }
     });
   }
+  // ----------------------------------------
 
   async findBySkill(skillId: string) {
     return this.prismaService.project.findMany({
@@ -117,6 +127,7 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       include: {
         user: true,
         projectSkills: true,
+        career: true,
       },
     });
   }
@@ -135,7 +146,6 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
 
     const roleName = userWithRole?.role?.name?.toLowerCase() || '';
     const isAdmin = roleName.includes('admin');
-    
     const isOwner = project.createdBy === user.id;
 
     if (!isAdmin && !isOwner) {
@@ -151,6 +161,21 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
         ...(startDate && { startDate: new Date(startDate) }),
         ...(endDate && { endDate: new Date(endDate) }),
       },
+      include: {
+        user: true,
+        projectSkills: true,
+        career: true,
+      }
     });
+  }
+
+  async remove(id: string): Promise<ProjectModel> {
+    try {
+      await this.prismaService.projectSkills.deleteMany({ where: { projectId: id } });
+      await this.prismaService.userProject.deleteMany({ where: { projectId: id } });
+      return super.remove(id);
+    } catch (error) {
+      throw error;
+    }
   }
 }
