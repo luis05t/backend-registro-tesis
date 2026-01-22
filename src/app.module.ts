@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ServeStaticModule } from '@nestjs/serve-static'; // <--- IMPORTANTE
-import { join } from 'path'; 
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -12,14 +12,15 @@ import { PermissionsModule } from './permissions/permissions.module';
 import { RolesPermissionsModule } from './roles-permissions/roles-permissions.module';
 import { SkillsModule } from './skills/skills.module';
 import { UsersProjectsModule } from './users-projects/users-projects.module';
-import { AppController } from './app.controller'; 
+import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
 @Module({
   imports: [
+    // --- CORRECCIÓN AQUÍ: Usamos process.cwd() para la ruta correcta ---
     ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'uploads'), 
-      serveRoot: '/uploads', 
+      rootPath: join(process.cwd(), 'uploads'),
+      serveRoot: '/uploads',
     }),
 
     ConfigModule.forRoot({ isGlobal: true }),

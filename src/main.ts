@@ -6,51 +6,47 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 
 async function bootstrap() {
-	const app = await NestFactory.create<NestExpressApplication>(AppModule);
+    const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-	app.useGlobalPipes(
-		new ValidationPipe({
-			transform: true,
-			whitelist: true,
-			forbidNonWhitelisted: true,
-			transformOptions: {
-				enableImplicitConversion: true,
-			},
-		}),
-	);
+    app.useGlobalPipes(
+        new ValidationPipe({
+            transform: true,
+            whitelist: true,
+            forbidNonWhitelisted: true,
+            transformOptions: {
+                enableImplicitConversion: true,
+            },
+        }),
+    );
 
-    // Servir archivos estáticos (imágenes)
-    app.useStaticAssets(join(process.cwd(), 'uploads'), {
-        prefix: '/uploads/',
+    // --- CORRECCIÓN: Se eliminó app.useStaticAssets porque ya lo maneja AppModule ---
+
+    app.setGlobalPrefix("api");
+
+    const config = new DocumentBuilder()
+        .setTitle("Registros API")
+        .setDescription("API documentation for Registros application")
+        .setVersion("0.1")
+        .addTag("ITS")
+        .addBearerAuth()
+        .build();
+
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup("docs", app, document, {
+        useGlobalPrefix: true,
     });
 
-	app.setGlobalPrefix("api");
-
-	const config = new DocumentBuilder()
-		.setTitle("Registros API")
-		.setDescription("API documentation for Registros application")
-		.setVersion("0.1")
-		.addTag("ITS")
-		.addBearerAuth()
-		.build();
-
-	const document = SwaggerModule.createDocument(app, config);
-	SwaggerModule.setup("docs", app, document, {
-		useGlobalPrefix: true,
-	});
-
-    // CONFIGURACIÓN CORS PARA TÚNELES
-	app.enableCors({
-		origin: true, // Permite cualquier origen (necesario para el túnel dinámico)
-		credentials: true,
+    // CONFIGURACIÓN CORS
+    app.enableCors({
+        origin: true,
+        credentials: true,
         methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-	});
+    });
 
-    // Escuchar en 0.0.0.0 es vital para que VS Code reenvíe el puerto
-	await app.listen(process.env.PORT ?? 8000, "0.0.0.0").catch((err) => {
-		console.error(err);
-	});
+    await app.listen(process.env.PORT ?? 8000, "0.0.0.0").catch((err) => {
+        console.error(err);
+    });
 }
 bootstrap().catch((err) => {
-	console.error("Error during bootstrap:", err);
+    console.error("Error during bootstrap:", err);
 });
