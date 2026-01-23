@@ -1,34 +1,25 @@
 version: '3.8'
 
 services:
-  db:
+  registros_db:
     image: postgres:15-alpine
     container_name: registros_db
     restart: always
     environment:
-      POSTGRES_USER: postgres
+      POSTGRES_USER: user_tesis
       POSTGRES_PASSWORD: password123
-      POSTGRES_DB: registros_db
+      POSTGRES_DB: db_tesis
     ports:
       - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
 
-  api:
-    container_name: registros_backend
+  registros_backend:
     build: .
+    container_name: registros_backend
+    environment:
+      DATABASE_URL: "postgresql://user_tesis:password123@registros_db:5432/db_tesis?schema=public"
+      JWT_SECRET: "tu_secreto_local"
+      PORT: 8000
     ports:
       - "8000:8000"
-    environment:
-      # Conexión a la base de datos
-      DATABASE_URL: "postgresql://postgres:password123@db:5432/registros_db?schema=public"
-      PORT: 8000
-      # [AGREGA ESTA LÍNEA] La clave secreta para los tokens
-      JWT_SECRET: "ClaveSecretaParaTesis123" 
-    volumes:
-      - ./uploads:/app/uploads
     depends_on:
-      - db
-
-volumes:
-  postgres_data:
+      - registros_db
