@@ -1,37 +1,19 @@
-services:
-  registros_db:
-    image: postgres:15-alpine
-    container_name: registros_db
-    restart: always
-    environment:
-      POSTGRES_USER: user_tesis
-      POSTGRES_PASSWORD: password123
-      POSTGRES_DB: db_tesis
-    ports:
-      - "5432:5432"
-    volumes:
-      - db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user_tesis -d db_tesis"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+version: '3.8'
 
+services:
   registros_backend:
     build: .
     container_name: registros_backend
     restart: always
     environment:
-      DATABASE_URL: "postgresql://user_tesis:password123@registros_db:5432/db_tesis?schema=public"
-      JWT_SECRET: "tu_secreto_local"
-      PORT: 8000
+      # Conexión a NeonDB (desde el .env)
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: ${PORT:-8000}
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:8000"
     volumes:
+      # Mantiene las imágenes guardadas en la carpeta física
       - ./uploads:/app/uploads
-    depends_on:
-      registros_db:
-        condition: service_healthy
-
-volumes:
-  db_data:
+    env_file:
+      - .env
