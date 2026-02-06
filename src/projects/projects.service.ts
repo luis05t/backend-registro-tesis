@@ -178,35 +178,4 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       throw error;
     }
   }
-
-  // =================================================================
-  // LÓGICA DE PERIODOS ACADÉMICOS (NUEVO)
-  // =================================================================
-
-  async createPeriod(name: string) {
-    const exists = await this.prismaService.period.findUnique({ where: { name } });
-    if (exists) {
-      throw new NotFoundException(`El periodo ${name} ya existe`);
-    }
-
-    return await this.prismaService.period.create({
-      data: { name },
-    });
-  }
-
-  async getPeriods() {
-    // Ordenamos por fecha de creación descendente para ver los nuevos primero
-    return await this.prismaService.period.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  async deletePeriod(id: string) {
-    const period = await this.prismaService.period.findUnique({ where: { id } });
-    if (!period) throw new NotFoundException(`Periodo con id ${id} no encontrado`);
-
-    return await this.prismaService.period.delete({
-      where: { id },
-    });
-  }
 }
