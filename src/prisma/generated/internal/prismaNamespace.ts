@@ -392,7 +392,8 @@ export const ModelName = {
   Project: 'Project',
   UserProject: 'UserProject',
   Skills: 'Skills',
-  projectSkills: 'projectSkills'
+  projectSkills: 'projectSkills',
+  Period: 'Period'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -408,7 +409,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "role" | "permission" | "rolePermission" | "career" | "project" | "userProject" | "skills" | "projectSkills"
+    modelProps: "user" | "role" | "permission" | "rolePermission" | "career" | "project" | "userProject" | "skills" | "projectSkills" | "period"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1078,6 +1079,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    Period: {
+      payload: Prisma.$PeriodPayload<ExtArgs>
+      fields: Prisma.PeriodFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.PeriodFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.PeriodFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload>
+        }
+        findFirst: {
+          args: Prisma.PeriodFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.PeriodFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload>
+        }
+        findMany: {
+          args: Prisma.PeriodFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload>[]
+        }
+        create: {
+          args: Prisma.PeriodCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload>
+        }
+        createMany: {
+          args: Prisma.PeriodCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.PeriodCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload>[]
+        }
+        delete: {
+          args: Prisma.PeriodDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload>
+        }
+        update: {
+          args: Prisma.PeriodUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload>
+        }
+        deleteMany: {
+          args: Prisma.PeriodDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.PeriodUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.PeriodUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload>[]
+        }
+        upsert: {
+          args: Prisma.PeriodUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PeriodPayload>
+        }
+        aggregate: {
+          args: Prisma.PeriodAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregatePeriod>
+        }
+        groupBy: {
+          args: Prisma.PeriodGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.PeriodGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.PeriodCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.PeriodCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1230,6 +1305,15 @@ export const ProjectSkillsScalarFieldEnum = {
 } as const
 
 export type ProjectSkillsScalarFieldEnum = (typeof ProjectSkillsScalarFieldEnum)[keyof typeof ProjectSkillsScalarFieldEnum]
+
+
+export const PeriodScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  createdAt: 'createdAt'
+} as const
+
+export type PeriodScalarFieldEnum = (typeof PeriodScalarFieldEnum)[keyof typeof PeriodScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1422,6 +1506,7 @@ export type GlobalOmitConfig = {
   userProject?: Prisma.UserProjectOmit
   skills?: Prisma.SkillsOmit
   projectSkills?: Prisma.projectSkillsOmit
+  period?: Prisma.PeriodOmit
 }
 
 /* Types for Logging */

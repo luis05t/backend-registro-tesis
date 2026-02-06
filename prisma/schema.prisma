@@ -143,3 +143,8 @@ model projectSkills {
 
   @@unique([projectId, skillId])
 }
+model Period {
+  id        String   @id @default(uuid())
+  name      String   @unique // Ejemplo: "Noviembre 2025 - Marzo 2026"
+  createdAt DateTime @default(now())
+}

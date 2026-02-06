@@ -59,7 +59,8 @@ export const ModelName = {
   Project: 'Project',
   UserProject: 'UserProject',
   Skills: 'Skills',
-  projectSkills: 'projectSkills'
+  projectSkills: 'projectSkills',
+  Period: 'Period'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -191,6 +192,15 @@ export const ProjectSkillsScalarFieldEnum = {
 } as const
 
 export type ProjectSkillsScalarFieldEnum = (typeof ProjectSkillsScalarFieldEnum)[keyof typeof ProjectSkillsScalarFieldEnum]
+
+
+export const PeriodScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  createdAt: 'createdAt'
+} as const
+
+export type PeriodScalarFieldEnum = (typeof PeriodScalarFieldEnum)[keyof typeof PeriodScalarFieldEnum]
 
 
 export const SortOrder = {

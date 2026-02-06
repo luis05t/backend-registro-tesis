@@ -82,3 +82,8 @@ export type Skills = Prisma.SkillsModel
  * 
  */
 export type projectSkills = Prisma.projectSkillsModel
+/**
+ * Model Period
+ * 
+ */
+export type Period = Prisma.PeriodModel
