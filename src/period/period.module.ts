@@ -7,7 +7,7 @@ import { AuthModule } from 'src/auth/auth.module'; // <--- IMPORTANTE
 @Module({
   imports: [
     PrismaModule,
-    AuthModule, // <--- AGREGAR AQUÍ
+    AuthModule, // <--- OBLIGATORIO para que funcionen los Guards
   ],
   controllers: [PeriodController],
   providers: [PeriodService],

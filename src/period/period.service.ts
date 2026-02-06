@@ -1,20 +1,12 @@
-import { Injectable, ConflictException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service'; 
-import { CreatePeriodDto } from './create-period.dto'; // Esto funcionará en cuanto crees el archivo del paso 1
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { CreatePeriodDto } from './create-period.dto';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class PeriodService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async create(createPeriodDto: CreatePeriodDto) {
-    const existing = await this.prisma.period.findUnique({
-      where: { name: createPeriodDto.name },
-    });
-
-    if (existing) {
-      throw new ConflictException('El periodo ya existe');
-    }
-
     return this.prisma.period.create({
       data: createPeriodDto,
     });
@@ -22,7 +14,26 @@ export class PeriodService {
 
   async findAll() {
     return this.prisma.period.findMany({
-       orderBy: { name: 'desc' }
+      orderBy: {
+        createdAt: 'desc', // Ordenar por fecha de creación (opcional)
+      },
+    });
+  }
+
+  async findOne(id: string) {
+    const period = await this.prisma.period.findUnique({
+      where: { id },
+    });
+    if (!period) throw new NotFoundException(`Period with ID ${id} not found`);
+    return period;
+  }
+
+  async remove(id: string) {
+    // Primero verificamos que exista para lanzar error 404 si no
+    await this.findOne(id);
+
+    return this.prisma.period.delete({
+      where: { id },
     });
   }
 }

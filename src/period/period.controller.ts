@@ -1,26 +1,42 @@
-import { Controller, Get, Post, Body } from '@nestjs/common';
+import { 
+  Controller, 
+  Get, 
+  Post, 
+  Body, 
+  Param, 
+  Delete, 
+  UseGuards 
+} from '@nestjs/common';
 import { PeriodService } from './period.service';
-import { CreatePeriodDto } from './create-period.dto'; 
-import { Auth } from '../auth/decorators'; // Importación correcta de TU proyecto
-import { ValidRoles } from '../auth/enums/valid-roles.enum'; // Importación correcta de TU proyecto
-import { ApiTags } from '@nestjs/swagger';
+import { CreatePeriodDto } from './create-period.dto';
+import { AuthGuard } from '@nestjs/passport';
+// Si tienes un guard de roles personalizado, impórtalo también
+// import { UserRoleGuard } from 'src/auth/guards/user-role.guard';
 
-@ApiTags('Periods')
 @Controller('period')
 export class PeriodController {
   constructor(private readonly periodService: PeriodService) {}
 
   @Post()
-  // Usamos tu decorador @Auth pasando el rol del enum (asegúrate que sea 'admin' o 'ADMIN' según tu enum)
-  // Si tu enum es ValidRoles.ADMIN, cámbialo aquí. Asumo ValidRoles.admin por convención.
-  @Auth(ValidRoles.ADMIN) 
+  @UseGuards(AuthGuard()) // Protege la creación
   create(@Body() createPeriodDto: CreatePeriodDto) {
     return this.periodService.create(createPeriodDto);
   }
 
   @Get()
-  @Auth() // Protegido para cualquier usuario logueado
+  // @UseGuards(AuthGuard()) // Descomenta si quieres proteger el listado también
   findAll() {
     return this.periodService.findAll();
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.periodService.findOne(id);
+  }
+
+  @Delete(':id')
+  @UseGuards(AuthGuard()) // Protege la eliminación
+  remove(@Param('id') id: string) {
+    return this.periodService.remove(id);
   }
 }
