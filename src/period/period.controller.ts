@@ -10,21 +10,18 @@ import {
 import { PeriodService } from './period.service';
 import { CreatePeriodDto } from './create-period.dto';
 import { AuthGuard } from '@nestjs/passport';
-// Si tienes un guard de roles personalizado, impórtalo también
-// import { UserRoleGuard } from 'src/auth/guards/user-role.guard';
 
 @Controller('period')
 export class PeriodController {
   constructor(private readonly periodService: PeriodService) {}
 
   @Post()
-  @UseGuards(AuthGuard()) // Protege la creación
+  @UseGuards(AuthGuard()) 
   create(@Body() createPeriodDto: CreatePeriodDto) {
     return this.periodService.create(createPeriodDto);
   }
 
   @Get()
-  // @UseGuards(AuthGuard()) // Descomenta si quieres proteger el listado también
   findAll() {
     return this.periodService.findAll();
   }
@@ -35,7 +32,7 @@ export class PeriodController {
   }
 
   @Delete(':id')
-  @UseGuards(AuthGuard()) // Protege la eliminación
+  @UseGuards(AuthGuard()) 
   remove(@Param('id') id: string) {
     return this.periodService.remove(id);
   }

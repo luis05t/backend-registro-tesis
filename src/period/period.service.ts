@@ -15,7 +15,7 @@ export class PeriodService {
   async findAll() {
     return this.prisma.period.findMany({
       orderBy: {
-        createdAt: 'desc', // Ordenar por fecha de creación (opcional)
+        createdAt: 'desc',
       },
     });
   }
@@ -29,7 +29,6 @@ export class PeriodService {
   }
 
   async remove(id: string) {
-    // Primero verificamos que exista para lanzar error 404 si no
     await this.findOne(id);
 
     return this.prisma.period.delete({
