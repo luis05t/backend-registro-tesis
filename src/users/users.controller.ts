@@ -6,7 +6,7 @@ import {
   Patch, 
   Param, 
   Delete, 
-  Query, // Importante para la paginación
+  Query, 
   UseInterceptors, 
   UploadedFile, 
   ParseFilePipe, 
@@ -19,6 +19,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { ApiTags } from '@nestjs/swagger';
 import { PaginationDto } from 'src/Libs/common';
 import { Auth } from 'src/auth/decorators';
+import { ValidRoles } from 'src/auth/enums/valid-roles.enum';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
@@ -27,6 +28,14 @@ import { extname } from 'path';
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  // --- CORREGIDO: Usamos ValidRoles.ADMIN (Mayúsculas) ---
+  @Post('create-teacher')
+  @Auth(ValidRoles.ADMIN) 
+  createTeacher(@Body() createUserDto: CreateUserDto) {
+    return this.usersService.createTeacher(createUserDto);
+  }
+  // ------------------------------------------------------
 
   @Post()
   create(@Body() createUserDto: CreateUserDto) {
@@ -49,7 +58,6 @@ export class UsersController {
     return this.usersService.update(id, updateUserDto);
   }
 
-  // --- MANTENEMOS LA FUNCIONALIDAD DE SUBIDA DE IMAGEN ---
   @Patch(':id/image')
   @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({

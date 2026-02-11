@@ -7,6 +7,8 @@ import {
   IsString,
   IsUUID,
 } from 'class-validator';
+// IMPORTANTE: Asegúrate de que esta ruta coincida con donde creaste el validador
+import { IsCurrentOrNextYear } from 'src/validators/is-current-or-next-year.decorator'; 
 
 export class CreateProjectDto {
   @ApiProperty()
@@ -58,11 +60,13 @@ export class CreateProjectDto {
   @ApiProperty({ required: false })
   @IsOptional() 
   @IsDateString() 
+  @IsCurrentOrNextYear() // <--- Agregado: Valida año actual o siguiente
   startDate?: string; 
 
   @ApiProperty({ required: false })
   @IsOptional() 
   @IsDateString() 
+  @IsCurrentOrNextYear() // <--- Agregado: Valida año actual o siguiente
   endDate?: string; 
 
   @ApiProperty()

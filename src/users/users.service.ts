@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { BaseService } from 'src/prisma/base.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -13,11 +13,10 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     super(prismaService, { name: 'user' });
   }
 
-  // --- 1. Crear Usuario (con Hash de contraseña) ---
+  // --- 1. Crear Usuario Normal (con Hash de contraseña) ---
   async create(createUserDto: CreateUserDto) {
     const { password, ...rest } = createUserDto;
     
-    // Encriptamos la contraseña antes de guardar
     const hashedPassword = await bcrypt.hash(password, 10);
 
     return this.prismaService.user.create({
@@ -28,7 +27,38 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     });
   }
 
-  // --- 2. Obtener Todos (Paginado) ---
+  // --- 2. NUEVO: Crear Docente (Solo Admin) ---
+  async createTeacher(createUserDto: CreateUserDto) {
+    const { password, email, name, careerId } = createUserDto;
+
+    // Buscamos el rol 'TEACHER' (Mayúsculas porque así está en el seed)
+    const role = await this.prismaService.role.findFirst({
+      where: { name: 'TEACHER' } 
+    });
+    
+    if (!role) {
+      throw new InternalServerErrorException('El rol TEACHER no existe en la base de datos');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Creamos el usuario asignándole el rol de profesor
+    const user = await this.prismaService.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        roleId: role.id,
+        careerId: careerId,
+      },
+    });
+    
+    // Retornamos el usuario sin la contraseña
+    const { password: _, ...userWithoutPassword } = user;
+    return userWithoutPassword;
+  }
+
+  // --- 3. Obtener Todos (Paginado) ---
   async findAll(paginationDto?: PaginationDto) {
     const { limit = 10, page = 1, order = 'desc' } = paginationDto || {};
     const skip = (page - 1) * limit;
@@ -39,8 +69,8 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       skip: skip,
       take: limit,
       include: {
-        role: true,   // Incluir detalles del Rol
-        career: true, // Incluir detalles de la Carrera
+        role: true,   
+        career: true, 
       },
       orderBy: { createdAt: order }
     });
@@ -63,7 +93,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     };
   }
 
-  // --- 3. Obtener Uno ---
+  // --- 4. Obtener Uno ---
   async findOne(id: string) {
     const user = await this.prismaService.user.findUnique({
       where: { id },
@@ -79,7 +109,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     return user;
   }
 
-  // --- 4. Actualizar Usuario (Manejo de contraseña opcional) ---
+  // --- 5. Actualizar Usuario ---
   async update(id: string, updateUserDto: UpdateUserDto) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
@@ -87,7 +117,6 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     const { password, ...rest } = updateUserDto;
     let dataToUpdate: any = { ...rest };
 
-    // Si envían una nueva contraseña, la encriptamos
     if (password) {
       dataToUpdate.password = await bcrypt.hash(password, 10);
     }
@@ -98,7 +127,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     });
   }
 
-  // --- 5. FUNCION FALTANTE: Actualizar Imagen ---
+  // --- 6. Actualizar Imagen ---
   async updateImage(id: string, file: Express.Multer.File) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
     
@@ -106,8 +135,6 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
 
-    // Construimos la ruta relativa para guardar en la BD
-    // Esto asume que sirves la carpeta 'uploads' como estática
     const imagePath = `/uploads/${file.filename}`;
 
     return this.prismaService.user.update({

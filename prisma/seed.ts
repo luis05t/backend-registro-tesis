@@ -1,29 +1,47 @@
 import * as bcrypt from "bcryptjs";
 import { config } from "dotenv";
-import { PrismaService } from '../src/prisma/prisma.service';
+// Importamos el cliente generado
+import { PrismaClient } from '../src/prisma/generated/client';
+// Importamos las librerías necesarias para el adaptador
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 import "dotenv/config";
 
-// Load environment variables
+// Cargar variables de entorno
 config();
 
-const prisma = new PrismaService();
+// 1. Configurar la conexión (Igual que en tu PrismaService)
+const connectionString = process.env.DATABASE_URL;
+
+const pool = new Pool({ 
+    connectionString,
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000,
+    max: 20
+});
+
+const adapter = new PrismaPg(pool);
+
+// 2. Instanciar PrismaClient pasando el adaptador (Esto soluciona el error)
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
     console.log("🌱 Starting seed...");
 
-    // Limpiar la base de datos (opcional, comentar si no deseas limpiar)
+    // Limpiar la base de datos
     console.log("🧹 Cleaning database...");
     try {
         await prisma.userProject.deleteMany();
         await prisma.projectSkills.deleteMany();
         await prisma.project.deleteMany();
+        await prisma.skills.deleteMany(); 
         await prisma.user.deleteMany();
         await prisma.rolePermission.deleteMany();
         await prisma.permission.deleteMany();
         await prisma.role.deleteMany();
         await prisma.career.deleteMany();
-        await prisma.skills.deleteMany();
+        await prisma.period.deleteMany(); // Agregado por si acaso
     } catch (error) {
         console.log("⚠️  Database might be already clean or tables missing.");
     }
@@ -44,9 +62,18 @@ async function main() {
         },
     });
 
+    // --- ROL DE USUARIO LECTOR ---
+    const userRole = await prisma.role.create({
+        data: {
+            name: "user",
+            description: "User with read-only access (Students/Guests)",
+        },
+    });
+
     console.log("✅ Roles created:", {
         admin: adminRole.name,
         teacher: teacherRole.name,
+        user: userRole.name, 
     });
 
     // ========== PERMISSIONS ==========
@@ -118,13 +145,30 @@ async function main() {
             ),
     );
 
+    // User (Lector) tiene permisos de solo lectura
+    const userPermissionNames = [
+        "projects:read",
+    ];
+    const userPermissions = await Promise.all(
+        permissions
+            .filter((p) => userPermissionNames.includes(p.name))
+            .map((permission) =>
+                prisma.rolePermission.create({
+                    data: {
+                        roleId: userRole.id,
+                        permissionId: permission.id,
+                    },
+                }),
+            ),
+    );
+
     console.log(`✅ Assigned ${adminPermissions.length} permissions to ADMIN`);
     console.log(`✅ Assigned ${teacherPermissions.length} permissions to TEACHER`);
+    console.log(`✅ Assigned ${userPermissions.length} permissions to USER`);
 
-    // ========== CAREERS (UPDATED) ==========
+    // ========== CAREERS ==========
     console.log("🎓 Creating careers...");
     
-    // Lista actualizada de carreras del Instituto Sudamericano
     const careerNames = [
         "Desarrollo de Software",
         "Redes y Telecomunicaciones",
@@ -216,7 +260,7 @@ async function main() {
     console.log("👤 Creating users...");
     const hashedPassword = bcrypt.hashSync("Luis4036150.", 10);
 
-    // Admin user (Asignado a Desarrollo de Software - careers[0])
+    // Admin user
     const adminUser = await prisma.user.create({
         data: {
             email: "luis@gmail.com",
@@ -234,7 +278,7 @@ async function main() {
             password: hashedPassword,
             name: "Juan Pérez García",
             roleId: teacherRole.id,
-            careerId: careers[0].id, // Desarrollo de Software
+            careerId: careers[0].id, 
         },
     });
 
@@ -244,7 +288,7 @@ async function main() {
             password: hashedPassword,
             name: "María López Hernández",
             roleId: teacherRole.id,
-            careerId: careers[1].id, // Redes y Telecomunicaciones
+            careerId: careers[1].id, 
         },
     });
 
@@ -254,15 +298,13 @@ async function main() {
             password: hashedPassword,
             name: "Carlos Ramírez Sánchez",
             roleId: teacherRole.id,
-            careerId: careers[2].id, // Electricidad
+            careerId: careers[2].id, 
         },
     });
 
     console.log("✅ Created users:");
     console.log(` - Admin: ${adminUser.email}`);
     console.log(` - Teacher: ${teacher1.email}`);
-    console.log(` - Teacher: ${teacher2.email}`);
-    console.log(` - Teacher: ${teacher3.email}`);
 
     // ========== PROJECTS ==========
     console.log("📁 Creating projects...");
@@ -273,7 +315,7 @@ async function main() {
                 description: "Desarrollo de un sistema web para gestión administrativa y académica",
                 status: "en progreso",
                 startDate: new Date("2024-09-01"),
-                careerId: careers[0].id, // Desarrollo de Software
+                careerId: careers[0].id,
                 objectives: [
                     "Implementar módulo de gestión de estudiantes",
                     "Desarrollar sistema de calificaciones",
@@ -282,7 +324,7 @@ async function main() {
                 createdBy: teacher1.id,
                 deliverables: [
                     "Documentación del sistema",
-                    "Código fuente en repositorio Git",
+                    "Código fuente",
                     "Manual de usuario",
                 ]
             },
@@ -293,39 +335,29 @@ async function main() {
                 description: "App móvil para control de asistencia mediante código QR",
                 status: "en progreso",
                 startDate: new Date("2024-10-01"),
-                careerId: careers[0].id, // Desarrollo de Software
+                careerId: careers[0].id,
                 objectives: [
                     "Implementar generación de códigos QR",
                     "Desarrollar lector de QR en dispositivos móviles",
-                    "Crear sistema de reportes de asistencia",
                 ],
                 createdBy: teacher1.id,
-                deliverables: [
-                    "Aplicación móvil para Android e iOS",
-                    "Código fuente en repositorio Git",
-                    "Manual de instalación y uso",
-                ]
+                deliverables: ["App móvil", "Manual de instalación"]
             },
         }),
         prisma.project.create({
             data: {
-                name: "Optimización de Redes de Datos", // Nombre ajustado para coherencia con Redes
+                name: "Optimización de Redes de Datos",
                 description: "Optimización de infraestructura de red mediante simulación",
                 status: "completado",
                 startDate: new Date("2024-08-01"),
                 endDate: new Date("2024-11-01"),
-                careerId: careers[1].id, // Redes y Telecomunicaciones
+                careerId: careers[1].id,
                 objectives: [
                     "Analizar la topología actual",
                     "Identificar cuellos de botella",
-                    "Proponer mejoras de enrutamiento",
                 ],
                 createdBy: teacher2.id,
-                deliverables: [
-                    "Informe de análisis de red",
-                    "Topología simulada en Packet Tracer",
-                    "Recomendaciones de hardware",
-                ]
+                deliverables: ["Informe", "Simulación Packet Tracer"]
             },
         }),
         prisma.project.create({
@@ -334,38 +366,28 @@ async function main() {
                 description: "Sistema de monitoreo de consumo con sensores",
                 status: "en progreso",
                 startDate: new Date("2024-09-15"),
-                careerId: careers[2].id, // Electricidad
+                careerId: careers[2].id,
                 objectives: [
-                    "Configurar sensores de corriente y voltaje",
-                    "Implementar comunicación con servidor",
-                    "Desarrollar dashboard de visualización",
+                    "Configurar sensores",
+                    "Implementar comunicación",
                 ],
                 createdBy: teacher3.id,
-                deliverables: [
-                    "Prototipo funcional del sistema IoT",
-                    "Esquemas eléctricos",
-                    "Manual técnico del sistema",
-                ]
+                deliverables: ["Prototipo", "Manual"]
             },
         }),
         prisma.project.create({
             data: {
                 name: "Predicción de Demanda con ML",
-                description: "Modelo de machine learning para predecir demanda de productos",
+                description: "Modelo de machine learning para predecir demanda",
                 status: "en progreso",
                 startDate: new Date("2024-10-15"),
-                careerId: careers[0].id, // Desarrollo de Software
+                careerId: careers[0].id,
                 objectives: [
-                    "Recolectar y limpiar datos históricos",
-                    "Entrenar modelo de predicción",
-                    "Validar precisión del modelo",
+                    "Entrenar modelo",
+                    "Validar precisión",
                 ],
                 createdBy: teacher1.id,
-                deliverables: [
-                    "Modelo entrenado y validado",
-                    "Código fuente en repositorio Git",
-                    "Informe de resultados",
-                ]
+                deliverables: ["Modelo", "Informe"]
             },
         }),
     ]);
@@ -375,7 +397,6 @@ async function main() {
     // ========== USER PROJECTS ==========
     console.log("🔗 Assigning users to projects...");
     await Promise.all([
-        // Teacher 1
         prisma.userProject.create({
             data: { userId: teacher1.id, projectId: projects[0].id },
         }),
@@ -385,11 +406,9 @@ async function main() {
         prisma.userProject.create({
             data: { userId: teacher1.id, projectId: projects[4].id },
         }),
-        // Teacher 2
         prisma.userProject.create({
             data: { userId: teacher2.id, projectId: projects[2].id },
         }),
-        // Teacher 3
         prisma.userProject.create({
             data: { userId: teacher3.id, projectId: projects[3].id },
         }),
@@ -400,7 +419,6 @@ async function main() {
     // ========== PROJECT SKILLS ==========
     console.log("💪 Assigning skills to projects...");
     await Promise.all([
-        // Sistema de Gestión Escolar
         prisma.projectSkills.create({
             data: { projectId: projects[0].id, skillId: skills[4].id }, // NestJS
         }),
@@ -408,29 +426,25 @@ async function main() {
             data: { projectId: projects[0].id, skillId: skills[1].id }, // TypeScript
         }),
         prisma.projectSkills.create({
-            data: { projectId: projects[0].id, skillId: skills[7].id }, // Database Design
+            data: { projectId: projects[0].id, skillId: skills[7].id }, // DB
         }),
-        // Aplicación Móvil
         prisma.projectSkills.create({
             data: { projectId: projects[1].id, skillId: skills[2].id }, // React
         }),
         prisma.projectSkills.create({
-            data: { projectId: projects[1].id, skillId: skills[0].id }, // JavaScript
+            data: { projectId: projects[1].id, skillId: skills[0].id }, // JS
         }),
-        // Redes (Ajustado a Python para scripts de red)
         prisma.projectSkills.create({
             data: { projectId: projects[2].id, skillId: skills[5].id }, // Python
         }),
-        // Sistema IoT
         prisma.projectSkills.create({
-            data: { projectId: projects[3].id, skillId: skills[3].id }, // Node.js
+            data: { projectId: projects[3].id, skillId: skills[3].id }, // Node
         }),
         prisma.projectSkills.create({
-            data: { projectId: projects[3].id, skillId: skills[0].id }, // JavaScript
+            data: { projectId: projects[3].id, skillId: skills[0].id }, // JS
         }),
-        // Predicción con ML
         prisma.projectSkills.create({
-            data: { projectId: projects[4].id, skillId: skills[6].id }, // Machine Learning
+            data: { projectId: projects[4].id, skillId: skills[6].id }, // ML
         }),
         prisma.projectSkills.create({
             data: { projectId: projects[4].id, skillId: skills[5].id }, // Python
@@ -438,17 +452,7 @@ async function main() {
     ]);
 
     console.log("✅ Project-Skills assignments created");
-
     console.log("\n🎉 Seed completed successfully!");
-    console.log("\n📝 Test Credentials:");
-    console.log(" Admin:");
-    console.log("   Email: admin@example.com");
-    console.log("   Password: Password123@");
-    console.log("\n Teachers:");
-    console.log("   Email: teacher1@example.com (Software)");
-    console.log("   Email: teacher2@example.com (Redes)");
-    console.log("   Email: teacher3@example.com (Electricidad)");
-    console.log("   Password: Password123@ (for all)");
 }
 
 main()
