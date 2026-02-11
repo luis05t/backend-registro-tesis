@@ -13,12 +13,12 @@ import { RolesPermissionsModule } from './roles-permissions/roles-permissions.mo
 import { SkillsModule } from './skills/skills.module';
 import { UsersProjectsModule } from './users-projects/users-projects.module';
 import { PeriodModule } from './period/period.module'; // <--- 1. NUEVA IMPORTACIÓN
+import { PorjectsSkillsModule } from './porjects-skills/porjects-skills.module'; // <--- AGREGADO: Importación del módulo de skills
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
 @Module({
   imports: [
-    // --- CORRECCIÓN AQUÍ: Usamos process.cwd() para la ruta correcta ---
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
       serveRoot: '/uploads',
@@ -35,7 +35,8 @@ import { AppService } from './app.service';
     RolesPermissionsModule,
     SkillsModule,
     UsersProjectsModule,
-    PeriodModule, // <--- 2. AGREGADO AL ARRAY DE IMPORTS
+    PeriodModule, 
+    PorjectsSkillsModule, 
   ],
   controllers: [AppController],
   providers: [AppService],
