@@ -89,6 +89,8 @@ export const UserScalarFieldEnum = {
   careerId: 'careerId',
   resetToken: 'resetToken',
   resetTokenExpiry: 'resetTokenExpiry',
+  isVerified: 'isVerified',
+  activationToken: 'activationToken',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

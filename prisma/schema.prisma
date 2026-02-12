@@ -13,13 +13,21 @@ model User {
   password String
   name     String
   image    String?
+  
+  // Relaciones
   roleId   String
   role     Role    @relation(fields: [roleId], references: [id])
   careerId String
   career   Career  @relation(fields: [careerId], references: [id])
 
+  // Recuperación de contraseña (Ya los tenías)
   resetToken       String?
   resetTokenExpiry DateTime?
+
+  // --- NUEVOS CAMPOS PARA VERIFICACIÓN DE CORREO ---
+  isVerified      Boolean   @default(false) // Por defecto es falso hasta que den clic al correo
+  activationToken String?   // El código único que se envía por email
+  // --------------------------------------------------
 
   projects        UserProject[]
   createdProjects Project[]     @relation("UserCreatedProjects")
