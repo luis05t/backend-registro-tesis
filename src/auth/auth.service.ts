@@ -25,52 +25,37 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  // --- 1. CONFIGURACIÓN DE LISTA BLANCA ESTRICTA ---
+  // --- 1. LISTA BLANCA DE DOMINIOS ---
   private isDomainAllowed(email: string): boolean {
     const domain = email.split('@')[1].toLowerCase();
-    
     const allowedDomains = [
       'sudamericano.edu.ec', 'gmail.com', 'outlook.com', 'hotmail.com',
       'yahoo.com', 'yahoo.es', 'icloud.com', 'live.com', 'msn.com',
       'me.com', 'zoho.com'
     ];
-
     const allowedExtensions = ['.edu.ec', '.edu', '.gob', '.gov'];
-
     const isInList = allowedDomains.includes(domain);
     const hasValidExtension = allowedExtensions.some(ext => domain.endsWith(ext));
-
     return isInList || hasValidExtension;
   }
 
   /**
-   * REGISTRO PÚBLICO (Estudiantes)
+   * REGISTRO PÚBLICO
    */
   async register(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId: _, ...userDto } = createUserDto;
 
-      // FILTRO DE LISTA BLANCA
       if (!this.isDomainAllowed(email)) {
-        throw new BadRequestException(
-          'Dominio no permitido. Use el institucional (@sudamericano.edu.ec) o proveedores autorizados.'
-        );
+        throw new BadRequestException('Dominio de correo no permitido por la institución.');
       }
 
-      // VALIDACIÓN TÉCNICA (RENDER)
       const isProduction = process.env.NODE_ENV === 'production';
       const res = await deepEmailValidator.validate({
-        email: email,
-        validateRegex: true,
-        validateTypo: false,       // <--- CLAVE: Evita el error de "Likely typo" en .edu.ec
-        validateDisposable: true,
-        validateMx: isProduction,  
-        validateSMTP: false,       // Evita AggregateError en la nube
+        email, validateRegex: true, validateTypo: false, validateDisposable: true, validateMx: isProduction, validateSMTP: false,
       });
 
-      if (!res.valid) {
-        throw new BadRequestException('El correo electrónico es inválido o el servidor no responde.');
-      }
+      if (!res.valid) throw new BadRequestException('Correo electrónico inválido o inexistente.');
 
       const role = await this.prisma.role.findFirst({ where: { name: 'USER' } });
       if (!role) throw new InternalServerErrorException("Rol 'USER' no inicializado.");
@@ -88,23 +73,21 @@ export class AuthService {
   }
 
   /**
-   * REGISTRO ADMINISTRATIVO (Docentes)
+   * REGISTRO ADMINISTRATIVO
    */
   async registerAdmin(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId, ...userDto } = createUserDto;
       if (!roleId) throw new BadRequestException("El roleId es obligatorio.");
 
-      if (!this.isDomainAllowed(email)) {
-        throw new BadRequestException('Dominio institucional o comercial autorizado requerido.');
-      }
+      if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio no autorizado.');
 
       const isProduction = process.env.NODE_ENV === 'production';
       const res = await deepEmailValidator.validate({
         email, validateRegex: true, validateTypo: false, validateDisposable: true, validateMx: isProduction, validateSMTP: false,
       });
 
-      if (!res.valid) throw new BadRequestException('Correo del docente inválido.');
+      if (!res.valid) throw new BadRequestException('Correo inválido.');
 
       const hashedPassword = bcrypt.hashSync(password, 10);
       const user = await this.prisma.user.create({
@@ -140,6 +123,33 @@ export class AuthService {
       accessToken: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
       refreshToken: this.getJwtToken({ id: user.id }, { expiresIn: "7d" }),
     };
+  }
+
+  /**
+   * --- FUNCIÓN QUE FALTABA: REFRESH TOKEN ---
+   */
+  async refreshToken(refreshDto: RefreshDto) {
+    try {
+      const payload = this.jwtService.verify(refreshDto.refreshToken, {
+        secret: this.configService.get<string>("JWT_SECRET"),
+      });
+
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.id },
+        include: { role: true },
+      });
+
+      if (!user) throw new UnauthorizedException("Token de refresco inválido");
+
+      return {
+        userId: user.id,
+        userRole: user.role.name,
+        accessToken: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
+        refreshToken: this.getJwtToken({ id: user.id }, { expiresIn: "7d" }),
+      };
+    } catch (error) {
+      throw new UnauthorizedException("Token de refresco expirado o inválido");
+    }
   }
 
   /**
@@ -193,9 +203,8 @@ export class AuthService {
   }
 
   private handleDBErrors(error: any): never {
-    console.error("AuthService Error:", error);
     if (error.code === 'P2002') throw new BadRequestException('El correo ya está registrado');
-    if (error instanceof BadRequestException || error instanceof UnauthorizedException || error instanceof NotFoundException) throw error;
+    console.error("AuthService Error:", error);
     throw new InternalServerErrorException("Error interno del servidor.");
   }
 }
