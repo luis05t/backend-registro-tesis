@@ -22,8 +22,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   }
 
   /**
-   * 1. Registro Público / General:
-   * Forza la asignación del rol 'user' (Lector) a cualquier usuario.
+   * 1. Registro Público / General
    */
   async create(createUserDto: CreateUserDto) {
     const { password, email, roleId: _, ...rest } = createUserDto;
@@ -36,8 +35,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       throw new InternalServerErrorException('El rol de lector (user) no ha sido inicializado. Ejecuta el seed.');
     }
 
-    // --- VALIDACIÓN HÍBRIDA DE CORREO ---
-    // Detectamos si estamos en Producción (Render) o Local
+    // --- VALIDACIÓN HÍBRIDA DE CORREO (AJUSTE RENDER) ---
     const isProduction = process.env.NODE_ENV === 'production';
 
     const res = await deepEmailValidator.validate({
@@ -45,9 +43,10 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       validateRegex: true,
       validateTypo: true,
       validateDisposable: true,
-      // Automático: True en Producción (Estricto), False en Local (Permisivo)
+      // MX sí funciona en Render y filtra dominios falsos
       validateMx: isProduction,    
-      validateSMTP: isProduction, 
+      // SMTP DEBE SER FALSE: Render bloquea el puerto 25 y causa AggregateError
+      validateSMTP: false, 
     });
 
     if (!res.valid) {
@@ -79,13 +78,12 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   }
 
   /**
-   * 2. Registro de Docente (Solo Admin):
-   * Forza la asignación del rol 'TEACHER' y VERIFICA el correo.
+   * 2. Registro de Docente (Solo Admin)
    */
   async createTeacher(createUserDto: CreateUserDto) {
     const { password, email, name, careerId } = createUserDto as any; 
 
-    // --- VALIDACIÓN HÍBRIDA DE CORREO ---
+    // --- VALIDACIÓN HÍBRIDA DE CORREO (AJUSTE RENDER) ---
     const isProduction = process.env.NODE_ENV === 'production';
 
     const res = await deepEmailValidator.validate({
@@ -93,9 +91,8 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       validateRegex: true,
       validateTypo: true,
       validateDisposable: true,
-      // Automático: True en Producción (Estricto), False en Local (Permisivo)
       validateMx: isProduction,    
-      validateSMTP: isProduction, 
+      validateSMTP: false, // Evita AggregateError en producción
     });
 
     if (!res.valid) {
@@ -104,7 +101,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       const message = details?.reason || errorReason || 'Desconocida';
 
       throw new BadRequestException(
-        `No se puede registrar al docente. El correo no existe o es inválido. Razón: ${message}`
+        `No se puede registrar al docente. El correo es inválido o el dominio no existe. Razón: ${message}`
       );
     }
     // ----------------------------------------------------
@@ -125,7 +122,6 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     const hashedPassword = await bcrypt.hash(password, 10);
 
     try {
-      // Creamos el usuario asignándole el rol de profesor
       const user = await this.prismaService.user.create({
         data: {
           name,
@@ -137,7 +133,6 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
         include: { role: true, career: true }
       });
       
-      // Retornamos el usuario sin la contraseña por seguridad
       const { password: _, ...userWithoutPassword } = user;
       return userWithoutPassword;
 
@@ -147,7 +142,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   }
 
   /**
-   * 3. Obtener Todos (Paginado) con relaciones incluidas
+   * 3. Obtener Todos (Paginado)
    */
   async findAll(paginationDto?: PaginationDto) {
     const { limit = 10, page = 1, order = 'desc' } = paginationDto || {};
@@ -184,7 +179,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   }
 
   /**
-   * 4. Obtener un usuario específico por ID
+   * 4. Obtener un usuario específico
    */
   async findOne(id: string) {
     const user = await this.prismaService.user.findUnique({
@@ -202,7 +197,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   }
 
   /**
-   * 5. Actualizar Usuario (Maneja actualización opcional de contraseña)
+   * 5. Actualizar Usuario
    */
   async update(id: string, updateUserDto: UpdateUserDto) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
@@ -230,28 +225,23 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   }
 
   /**
-   * 6. Actualizar Imagen de Perfil
+   * 6. Actualizar Imagen
    */
   async updateImage(id: string, file: Express.Multer.File) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
-    
-    if (!user) {
-      throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
-    }
+    if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
 
     const imagePath = `/uploads/${file.filename}`;
 
     return this.prismaService.user.update({
       where: { id },
-      data: {
-        image: imagePath,
-      },
+      data: { image: imagePath },
       include: { role: true, career: true }
     });
   }
 
   /**
-   * 7. Eliminar Usuario (Hard delete)
+   * 7. Eliminar Usuario
    */
   async remove(id: string) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
@@ -267,27 +257,23 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   }
 
   // =================================================================
-  // HELPER PRIVADO PARA MANEJO DE ERRORES PRISMA
+  // MANEJO DE ERRORES PRISMA
   // =================================================================
   private handleDBErrors(error: any): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      // P2002: Violación de restricción única (ej. email duplicado)
       if (error.code === 'P2002') {
         throw new ConflictException('El correo electrónico ya se encuentra registrado');
       }
-      // P2003: Violación de clave foránea (ej. careerId no existe)
       if (error.code === 'P2003') {
         throw new BadRequestException('La carrera seleccionada (ID) no existe en la base de datos.');
       }
     }
     
-    // Si el error viene de deep-email-validator (BadRequestException lanzado arriba)
     if (error instanceof BadRequestException) {
         throw error;
     }
 
     console.error(error);
-    
     throw new InternalServerErrorException('Error inesperado en el servidor, revise los logs.');
   }
 }

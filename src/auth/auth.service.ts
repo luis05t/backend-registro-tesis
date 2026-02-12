@@ -32,8 +32,7 @@ export class AuthService {
     try {
       const { password, email, roleId: _, ...userDto } = createUserDto;
 
-      // --- VALIDACIÓN HÍBRIDA DE CORREO ---
-      // Detecta si estamos en producción (nube) o desarrollo (local)
+      // --- VALIDACIÓN CORREGIDA PARA RENDER ---
       const isProduction = process.env.NODE_ENV === 'production';
 
       const res = await deepEmailValidator.validate({
@@ -41,9 +40,10 @@ export class AuthService {
         validateRegex: true,
         validateTypo: true,
         validateDisposable: true,
-        // Si es producción, activa MX check y SMTP. Si es local, apaga para evitar bloqueos.
+        // MX sí funciona en Render (revisa si el dominio es real)
         validateMx: isProduction,
-        validateSMTP: isProduction, 
+        // SMTP DEBE SER FALSE: Render bloquea el puerto 25 y causa AggregateError
+        validateSMTP: false, 
       });
 
       if (!res.valid) {
@@ -100,7 +100,7 @@ export class AuthService {
         throw new BadRequestException("El roleId es obligatorio para registros administrativos");
       }
 
-      // --- VALIDACIÓN HÍBRIDA DE CORREO ---
+      // --- VALIDACIÓN CORREGIDA PARA RENDER ---
       const isProduction = process.env.NODE_ENV === 'production';
 
       const res = await deepEmailValidator.validate({
@@ -109,7 +109,7 @@ export class AuthService {
         validateTypo: true,
         validateDisposable: true,
         validateMx: isProduction, 
-        validateSMTP: isProduction,
+        validateSMTP: false, // Evita AggregateError en producción
       });
 
       if (!res.valid) {
@@ -118,7 +118,7 @@ export class AuthService {
         const message = details?.reason || errorReason || 'Desconocida';
 
         throw new BadRequestException(
-          `No se puede registrar al usuario. El correo electrónico no existe o es inválido. Razón: ${message}`
+          `No se puede registrar al usuario. El correo electrónico es inválido. Razón: ${message}`
         );
       }
       // --------------------------------------
@@ -285,7 +285,6 @@ export class AuthService {
       throw new BadRequestException('El correo electrónico ya se encuentra registrado');
     }
     if (error instanceof InternalServerErrorException) throw error;
-    // Captura el error lanzado manualmente si es BadRequest
     if (error instanceof BadRequestException) throw error; 
     
     throw new InternalServerErrorException("Error interno del servidor, verifique los logs.");
