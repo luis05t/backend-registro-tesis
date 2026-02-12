@@ -32,18 +32,16 @@ export class AuthService {
     try {
       const { password, email, roleId: _, ...userDto } = createUserDto;
 
-      // --- VALIDACIÓN CORREGIDA PARA RENDER ---
+      // --- VALIDACIÓN CORREGIDA PARA DOMINIOS .EDU.EC ---
       const isProduction = process.env.NODE_ENV === 'production';
 
       const res = await deepEmailValidator.validate({
         email: email,
         validateRegex: true,
-        validateTypo: true,
+        validateTypo: false,       // <--- CLAVE: Se desactiva para que no rechace el .ec
         validateDisposable: true,
-        // MX sí funciona en Render (revisa si el dominio es real)
-        validateMx: isProduction,
-        // SMTP DEBE SER FALSE: Render bloquea el puerto 25 y causa AggregateError
-        validateSMTP: false, 
+        validateMx: isProduction,  // Verifica que el dominio exista en producción
+        validateSMTP: false,       // Se mantiene en false por bloqueo de puertos en Render
       });
 
       if (!res.valid) {
@@ -100,16 +98,16 @@ export class AuthService {
         throw new BadRequestException("El roleId es obligatorio para registros administrativos");
       }
 
-      // --- VALIDACIÓN CORREGIDA PARA RENDER ---
+      // --- VALIDACIÓN CORREGIDA PARA DOMINIOS .EDU.EC ---
       const isProduction = process.env.NODE_ENV === 'production';
 
       const res = await deepEmailValidator.validate({
         email: email,
         validateRegex: true,
-        validateTypo: true,
+        validateTypo: false,       // <--- CLAVE: Se desactiva para aceptar el dominio institucional
         validateDisposable: true,
         validateMx: isProduction, 
-        validateSMTP: false, // Evita AggregateError en producción
+        validateSMTP: false,
       });
 
       if (!res.valid) {

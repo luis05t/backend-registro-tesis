@@ -35,18 +35,16 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       throw new InternalServerErrorException('El rol de lector (user) no ha sido inicializado. Ejecuta el seed.');
     }
 
-    // --- VALIDACIÓN HÍBRIDA DE CORREO (AJUSTE RENDER) ---
+    // --- VALIDACIÓN CORREGIDA PARA DOMINIOS .EDU.EC ---
     const isProduction = process.env.NODE_ENV === 'production';
 
     const res = await deepEmailValidator.validate({
       email: email,
       validateRegex: true,
-      validateTypo: true,
+      validateTypo: false,         // <--- CLAVE: Se desactiva para aceptar el dominio institucional
       validateDisposable: true,
-      // MX sí funciona en Render y filtra dominios falsos
-      validateMx: isProduction,    
-      // SMTP DEBE SER FALSE: Render bloquea el puerto 25 y causa AggregateError
-      validateSMTP: false, 
+      validateMx: isProduction,    // Revisa que el dominio exista realmente
+      validateSMTP: false,         // Evita errores de puertos en servidores nube
     });
 
     if (!res.valid) {
@@ -83,16 +81,16 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   async createTeacher(createUserDto: CreateUserDto) {
     const { password, email, name, careerId } = createUserDto as any; 
 
-    // --- VALIDACIÓN HÍBRIDA DE CORREO (AJUSTE RENDER) ---
+    // --- VALIDACIÓN CORREGIDA PARA DOMINIOS .EDU.EC ---
     const isProduction = process.env.NODE_ENV === 'production';
 
     const res = await deepEmailValidator.validate({
       email: email,
       validateRegex: true,
-      validateTypo: true,
+      validateTypo: false,         // <--- CLAVE: Se desactiva para que no rechace el .ec
       validateDisposable: true,
       validateMx: isProduction,    
-      validateSMTP: false, // Evita AggregateError en producción
+      validateSMTP: false, 
     });
 
     if (!res.valid) {
@@ -179,7 +177,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   }
 
   /**
-   * 4. Obtener un usuario específico
+   * 4. Obtener un usuario específico por ID
    */
   async findOne(id: string) {
     const user = await this.prismaService.user.findUnique({
