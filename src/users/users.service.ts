@@ -13,31 +13,51 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     super(prismaService, { name: 'user' });
   }
 
-  // --- 1. Crear Usuario Normal (con Hash de contraseña) ---
+  /**
+   * 1. Registro Público / General:
+   * Forza la asignación del rol 'user' (Lector) a cualquier usuario.
+   */
   async create(createUserDto: CreateUserDto) {
-    const { password, ...rest } = createUserDto;
-    
+    // IMPORTANTE: Extraemos 'roleId' y lo descartamos (_) para evitar errores de TS
+    // ya que en el DTO es opcional (string | undefined) y Prisma lo requiere como string.
+    const { password, email, roleId: _, ...rest } = createUserDto;
+
+    // Buscamos el rol de lector por defecto ('user')
+    const role = await this.prismaService.role.findFirst({
+      where: { name: 'USER' }
+    });
+
+    if (!role) {
+      throw new InternalServerErrorException('El rol de lector (user) no ha sido inicializado en la base de datos. Ejecuta el seed.');
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     return this.prismaService.user.create({
       data: {
         ...rest,
+        email: email.toLowerCase(),
         password: hashedPassword,
+        roleId: role.id, // Asignamos el ID obligatorio del rol de lector
       },
+      include: { role: true, career: true }
     });
   }
 
-  // --- 2. NUEVO: Crear Docente (Solo Admin) ---
+  /**
+   * 2. Registro de Docente (Solo Admin):
+   * Forza la asignación del rol 'TEACHER'.
+   */
   async createTeacher(createUserDto: CreateUserDto) {
     const { password, email, name, careerId } = createUserDto;
 
-    // Buscamos el rol 'TEACHER' (Mayúsculas porque así está en el seed)
+    // Buscamos el rol 'TEACHER' (Mayúsculas como se definió en el seed)
     const role = await this.prismaService.role.findFirst({
       where: { name: 'TEACHER' } 
     });
     
     if (!role) {
-      throw new InternalServerErrorException('El rol TEACHER no existe en la base de datos');
+      throw new InternalServerErrorException('El rol TEACHER no existe en la base de datos. Ejecuta el seed.');
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -46,19 +66,22 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     const user = await this.prismaService.user.create({
       data: {
         name,
-        email,
+        email: email.toLowerCase(),
         password: hashedPassword,
         roleId: role.id,
         careerId: careerId,
       },
+      include: { role: true, career: true }
     });
     
-    // Retornamos el usuario sin la contraseña
+    // Retornamos el usuario sin la contraseña por seguridad
     const { password: _, ...userWithoutPassword } = user;
     return userWithoutPassword;
   }
 
-  // --- 3. Obtener Todos (Paginado) ---
+  /**
+   * 3. Obtener Todos (Paginado) con relaciones incluidas
+   */
   async findAll(paginationDto?: PaginationDto) {
     const { limit = 10, page = 1, order = 'desc' } = paginationDto || {};
     const skip = (page - 1) * limit;
@@ -93,7 +116,9 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     };
   }
 
-  // --- 4. Obtener Uno ---
+  /**
+   * 4. Obtener un usuario específico por ID
+   */
   async findOne(id: string) {
     const user = await this.prismaService.user.findUnique({
       where: { id },
@@ -109,13 +134,19 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     return user;
   }
 
-  // --- 5. Actualizar Usuario ---
+  /**
+   * 5. Actualizar Usuario (Maneja actualización opcional de contraseña)
+   */
   async update(id: string, updateUserDto: UpdateUserDto) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
 
-    const { password, ...rest } = updateUserDto;
-    let dataToUpdate: any = { ...rest };
+    // Al igual que en create, descartamos roleId si viniera opcional
+    const { password, email, roleId: _, ...rest } = updateUserDto;
+    let dataToUpdate: any = { 
+      ...rest,
+      email: email?.toLowerCase() 
+    };
 
     if (password) {
       dataToUpdate.password = await bcrypt.hash(password, 10);
@@ -124,10 +155,13 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     return this.prismaService.user.update({
       where: { id },
       data: dataToUpdate,
+      include: { role: true, career: true }
     });
   }
 
-  // --- 6. Actualizar Imagen ---
+  /**
+   * 6. Actualizar Imagen de Perfil
+   */
   async updateImage(id: string, file: Express.Multer.File) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
     
@@ -135,6 +169,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
 
+    // Ruta estática para acceder a la imagen configurada en main.ts
     const imagePath = `/uploads/${file.filename}`;
 
     return this.prismaService.user.update({
@@ -142,6 +177,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       data: {
         image: imagePath,
       },
+      include: { role: true, career: true }
     });
   }
 }

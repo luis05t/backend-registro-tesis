@@ -29,13 +29,14 @@ import { extname } from 'path';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  // --- CORREGIDO: Usamos ValidRoles.ADMIN (Mayúsculas) ---
+  /**
+   * Endpoint exclusivo para que el administrador registre nuevos docentes.
+   */
   @Post('create-teacher')
   @Auth(ValidRoles.ADMIN) 
   createTeacher(@Body() createUserDto: CreateUserDto) {
     return this.usersService.createTeacher(createUserDto);
   }
-  // ------------------------------------------------------
 
   @Post()
   create(@Body() createUserDto: CreateUserDto) {
@@ -58,6 +59,10 @@ export class UsersController {
     return this.usersService.update(id, updateUserDto);
   }
 
+  /**
+   * Actualiza la imagen de perfil del usuario.
+   * Almacena el archivo en la carpeta ./uploads con un nombre único.
+   */
   @Patch(':id/image')
   @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({
@@ -74,7 +79,7 @@ export class UsersController {
     @UploadedFile(
       new ParseFilePipe({
         validators: [
-          new MaxFileSizeValidator({ maxSize: 1024 * 1024 * 5 }), // 5MB
+          new MaxFileSizeValidator({ maxSize: 1024 * 1024 * 5 }), // Límite de 5MB
         ],
         fileIsRequired: false
       }),

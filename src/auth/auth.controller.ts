@@ -11,18 +11,31 @@ import { RefreshDto } from "./dto/refreshDto";
 export class AuthController {
 	constructor(private authService: AuthService) {}
 
+	/**
+	 * Inicio de sesión para todos los usuarios.
+	 * Devuelve los tokens de acceso y refresco.
+	 */
 	@HttpCode(HttpStatus.OK)
 	@Post("login")
 	async login(@Body() loginDto: LoginDto) {
 		return this.authService.login(loginDto);
 	}
 
-	@Auth()
+	/**
+	 * REGISTRO PÚBLICO:
+	 * Se eliminó el decorador @Auth() para permitir que nuevos usuarios (Lectores)
+	 * puedan crear su cuenta sin estar logueados.
+	 */
 	@Post("register")
-	async register(@Body() CreateUserDto: CreateUserDto) {
-		return this.authService.register(CreateUserDto);
+	async register(@Body() createUserDto: CreateUserDto) {
+		return this.authService.register(createUserDto);
 	}
 
+	/**
+	 * REGISTRO DE ADMINISTRADOR / ESPECIAL:
+	 * Este endpoint sí permanece protegido porque se usa para crear usuarios
+	 * con roles específicos desde una cuenta con permisos.
+	 */
 	@Auth()
 	@ApiSecurity("bearer", [])
 	@Post("register-admin")
@@ -30,6 +43,9 @@ export class AuthController {
 		return this.authService.registerAdmin(createUserDto);
 	}
 
+	/**
+	 * Renovación de tokens.
+	 */
 	@HttpCode(HttpStatus.OK)
 	@Post("refresh-token")
 	async refreshToken(@Body() refreshDto: RefreshDto) {

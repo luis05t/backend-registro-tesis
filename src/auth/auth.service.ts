@@ -6,7 +6,6 @@ import {
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService, JwtSignOptions } from "@nestjs/jwt";
-// CORRECCIÓN: Usamos 'bcrypt' para coincidir con la librería instalada en UsersService
 import * as bcrypt from "bcrypt"; 
 import { CreateUserDto } from "src/users/dto/create-user.dto";
 import { PrismaService } from "src/prisma/prisma.service";
@@ -22,126 +21,157 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
+  /**
+   * REGISTRO PÚBLICO:
+   * Forza la asignación del rol 'user' (Lector).
+   */
   async register(createUserDto: CreateUserDto) {
     try {
-      const { password, ...userDto } = createUserDto;
+      // 1. Extraemos roleId y lo renombramos a '_' para ignorar lo que venga del frontend.
+      // Esto limpia el objeto userDto de cualquier propiedad 'undefined'.
+      const { password, email, roleId: _, ...userDto } = createUserDto;
 
-      // --- AGREGADO: Buscar el rol 'user' por defecto ---
+      // 2. Buscamos el ID del rol de lector ('user') en la base de datos
       const role = await this.prisma.role.findFirst({
-        where: { name: 'user' }, 
+        where: { name: 'USER' }, 
       });
 
       if (!role) {
-        throw new InternalServerErrorException("El rol por defecto 'user' no existe en la base de datos");
+        throw new InternalServerErrorException(
+          "El rol por defecto 'user' no existe. Asegúrate de haber ejecutado el seed de la base de datos."
+        );
       }
-      // ------------------------------------------------
 
       const hashedPassword = bcrypt.hashSync(password, 10);
 
+      // 3. Creamos el usuario pasando el roleId obligatorio manualmente
       const user = await this.prisma.user.create({
         data: {
           ...userDto,
+          email: email.toLowerCase(),
           password: hashedPassword,
-          roleId: role.id, // Forzamos la asignación del rol 'user'
+          roleId: role.id, // Asignamos el string garantizado de la base de datos
         },
       });
 
-      return user;
+      // Limpiamos la respuesta
+      const { password: __, ...result } = user;
+      
+      return {
+        user: result,
+        token: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
+      };
     } catch (error) {
       this.handleDBErrors(error);
     }
   }
 
+  /**
+   * REGISTRO ADMINISTRATIVO:
+   * Permite crear usuarios con roles específicos (como TEACHER).
+   */
   async registerAdmin(createUserDto: CreateUserDto) {
     try {
-      const { password, ...userDto } = createUserDto;
+      const { password, email, roleId, ...userDto } = createUserDto;
+      
+      if (!roleId) {
+        throw new BadRequestException("El roleId es obligatorio para registros administrativos");
+      }
+
       const hashedPassword = bcrypt.hashSync(password, 10);
 
       const user = await this.prisma.user.create({
         data: {
           ...userDto,
+          email: email.toLowerCase(),
           password: hashedPassword,
+          roleId: roleId, 
         },
+        include: { role: true }
       });
 
-      return user;
+      const { password: _, ...result } = user;
+      return result;
     } catch (error) {
       this.handleDBErrors(error);
     }
   }
 
+  /**
+   * INICIO DE SESIÓN
+   */
   async login(loginDto: LoginDto) {
     const { password, email } = loginDto;
 
-    // Aquí NO necesitamos ?limit=1000 porque buscamos uno solo por email (findUnique)
     const user = await this.prisma.user.findUnique({
-      where: { email },
-      select: {
-        email: true,
-        password: true, // Necesitamos traer el password encriptado
-        id: true,
-        role: true,
+      where: { email: email.toLowerCase() },
+      include: {
+        role: true, 
       },
     });
 
-    if (!user) throw new UnauthorizedException("Correo incorrecto");
+    if (!user) throw new UnauthorizedException("Credenciales no válidas (Email)");
     
-    // Esta línea es la magia: compara el texto plano con el hash de la BD
-    if (!bcrypt.compareSync(password, user.password))
-      throw new UnauthorizedException("Contraseña incorrecta");
+    // Comparamos el texto plano con el hash de la BD
+    const isPasswordValid = bcrypt.compareSync(password, user.password);
+    if (!isPasswordValid)
+      throw new UnauthorizedException("Credenciales no válidas (Password)");
 
     const accessToken = this.getJwtToken({ id: user.id }, { expiresIn: "2d" });
     const refreshToken = this.getJwtToken({ id: user.id }, { expiresIn: "7d" });
 
     return {
       userId: user.id,
-      UserRole: user.role,
+      userRole: user.role.name,
+      userName: user.name,
       accessToken,
       refreshToken,
     };
   }
 
-  private getJwtToken(payload: JwtPayload, options?: JwtSignOptions) {
-    const token = this.jwtService.sign(payload, options);
-    return token;
-  }
-
+  /**
+   * REFRESCO DE TOKEN
+   */
   async refreshToken(refreshDto: RefreshDto) {
     try {
       const payload = this.jwtService.verify(refreshDto.refreshToken, {
         secret: this.configService.get<string>("JWT_SECRET"),
       });
+
       const user = await this.prisma.user.findUnique({
         where: { id: payload.id },
-        select: { email: true, password: true, id: true },
+        include: { role: true },
       });
 
-      if (!user) throw new UnauthorizedException("Invalid refresh token");
-      const accessToken = this.getJwtToken(
-        { id: user.id },
-        { expiresIn: "2d" },
-      );
-      const refreshToken = this.getJwtToken(
-        { id: user.id },
-        { expiresIn: "7d" },
-      );
+      if (!user) throw new UnauthorizedException("Token de refresco inválido");
 
       return {
-        ...user,
-        accessToken,
-        refreshToken,
+        userId: user.id,
+        userRole: user.role.name,
+        accessToken: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
+        refreshToken: this.getJwtToken({ id: user.id }, { expiresIn: "7d" }),
       };
     } catch (error) {
-      throw error;
+      throw new UnauthorizedException("Token de refresco expirado o inválido");
     }
   }
   
-  private handleDBErrors(error): never {
-    if (error.code === "23505") throw new BadRequestException(error.detail);
-    if (error.code?.startsWith("P")) {
-      throw error; 
+  private getJwtToken(payload: JwtPayload, options?: JwtSignOptions) {
+    return this.jwtService.sign(payload, options);
+  }
+
+  private handleDBErrors(error: any): never {
+    // Log para depuración en consola
+    console.error("AuthService Error:", error);
+
+    if (error.code === 'P2002') {
+      throw new BadRequestException('El correo electrónico ya se encuentra registrado');
     }
 
-    throw new InternalServerErrorException("Please check server logs");
+    if (error instanceof InternalServerErrorException) {
+      throw error;
+    }
+
+    throw new InternalServerErrorException("Error interno del servidor, verifique los logs.");
   }
 }
