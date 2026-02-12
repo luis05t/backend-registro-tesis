@@ -65,7 +65,7 @@ async function main() {
     // --- ROL DE USUARIO LECTOR ---
     const userRole = await prisma.role.create({
         data: {
-            name: "user",
+            name: "USER",
             description: "User with read-only access (Students/Guests)",
         },
     });
