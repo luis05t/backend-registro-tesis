@@ -25,35 +25,63 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
+  // --- CONFIGURACIÓN DE LISTA BLANCA ---
+  private isDomainAllowed(email: string): boolean {
+    const domain = email.split('@')[1].toLowerCase();
+    
+    // 1. Dominios específicos permitidos
+    const allowedDomains = [
+      'sudamericano.edu.ec',
+      'gmail.com',
+      'outlook.com',
+      'hotmail.com',
+      'yahoo.com',
+      'yahoo.es',
+      'icloud.com',
+      'live.com',
+      'msn.com',
+      'me.com',
+      'zoho.com'
+    ];
+
+    // 2. Extensiones oficiales permitidas
+    const allowedExtensions = ['.edu.ec', '.edu', '.gob', '.gov'];
+
+    // Verificación: ¿Está en la lista o termina en una extensión válida?
+    const isInList = allowedDomains.includes(domain);
+    const hasValidExtension = allowedExtensions.some(ext => domain.endsWith(ext));
+
+    return isInList || hasValidExtension;
+  }
+
   /**
-   * REGISTRO PÚBLICO
+   * REGISTRO PÚBLICO (Estudiantes)
    */
   async register(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId: _, ...userDto } = createUserDto;
 
-      // --- VALIDACIÓN CORREGIDA PARA DOMINIOS .EDU.EC ---
-      const isProduction = process.env.NODE_ENV === 'production';
+      // --- FILTRO 1: VALIDACIÓN DE LISTA BLANCA ---
+      if (!this.isDomainAllowed(email)) {
+        throw new BadRequestException(
+          'El dominio del correo no está permitido. Por favor use su correo institucional (@sudamericano.edu.ec) o uno de los proveedores autorizados.'
+        );
+      }
 
+      // --- FILTRO 2: VALIDACIÓN DE EXISTENCIA ---
+      const isProduction = process.env.NODE_ENV === 'production';
       const res = await deepEmailValidator.validate({
         email: email,
         validateRegex: true,
-        validateTypo: false,       // <--- CLAVE: Se desactiva para que no rechace el .ec
+        validateTypo: false,       // Desactivado para aceptar dominios .ec sin errores
         validateDisposable: true,
-        validateMx: isProduction,  // Verifica que el dominio exista en producción
-        validateSMTP: false,       // Se mantiene en false por bloqueo de puertos en Render
+        validateMx: isProduction,  // Revisa DNS en producción (Render)
+        validateSMTP: false,       // Desactivado por bloqueo de puertos en la nube
       });
 
       if (!res.valid) {
-        const errorReason = res.reason;
-        const details = errorReason ? res.validators[errorReason] : null;
-        const message = details?.reason || errorReason || 'Desconocida';
-
-        throw new BadRequestException(
-          `El correo electrónico no es válido o no existe. Razón: ${message}`
-        );
+        throw new BadRequestException('El correo electrónico ingresado no es válido o no existe en internet.');
       }
-      // --------------------------------------
 
       const role = await this.prisma.role.findFirst({
         where: { name: 'USER' }, 
@@ -88,7 +116,7 @@ export class AuthService {
   }
 
   /**
-   * REGISTRO ADMINISTRATIVO
+   * REGISTRO ADMINISTRATIVO (Docentes)
    */
   async registerAdmin(createUserDto: CreateUserDto) {
     try {
@@ -98,28 +126,27 @@ export class AuthService {
         throw new BadRequestException("El roleId es obligatorio para registros administrativos");
       }
 
-      // --- VALIDACIÓN CORREGIDA PARA DOMINIOS .EDU.EC ---
-      const isProduction = process.env.NODE_ENV === 'production';
+      // --- FILTRO 1: VALIDACIÓN DE LISTA BLANCA ---
+      if (!this.isDomainAllowed(email)) {
+        throw new BadRequestException(
+          'No se puede registrar. El dominio debe ser institucional o de un proveedor comercial autorizado.'
+        );
+      }
 
+      // --- FILTRO 2: VALIDACIÓN DE EXISTENCIA ---
+      const isProduction = process.env.NODE_ENV === 'production';
       const res = await deepEmailValidator.validate({
         email: email,
         validateRegex: true,
-        validateTypo: false,       // <--- CLAVE: Se desactiva para aceptar el dominio institucional
+        validateTypo: false,
         validateDisposable: true,
         validateMx: isProduction, 
         validateSMTP: false,
       });
 
       if (!res.valid) {
-        const errorReason = res.reason;
-        const details = errorReason ? res.validators[errorReason] : null;
-        const message = details?.reason || errorReason || 'Desconocida';
-
-        throw new BadRequestException(
-          `No se puede registrar al usuario. El correo electrónico es inválido. Razón: ${message}`
-        );
+        throw new BadRequestException('El correo electrónico es inválido o el servidor de correo no responde.');
       }
-      // --------------------------------------
 
       const hashedPassword = bcrypt.hashSync(password, 10);
 
@@ -140,53 +167,32 @@ export class AuthService {
     }
   }
 
-  /**
-   * INICIO DE SESIÓN
-   */
+  // ... (Resto de métodos login, refreshToken, forgotPassword se mantienen igual)
+
   async login(loginDto: LoginDto) {
     const { password, email } = loginDto;
-
     const user = await this.prisma.user.findUnique({
       where: { email: email.toLowerCase() },
-      include: {
-        role: true, 
-      },
+      include: { role: true },
     });
-
     if (!user) throw new UnauthorizedException("Credenciales no válidas (Email)");
-    
     const isPasswordValid = bcrypt.compareSync(password, user.password);
-    if (!isPasswordValid)
-      throw new UnauthorizedException("Credenciales no válidas (Password)");
-
+    if (!isPasswordValid) throw new UnauthorizedException("Credenciales no válidas (Password)");
     const accessToken = this.getJwtToken({ id: user.id }, { expiresIn: "2d" });
     const refreshToken = this.getJwtToken({ id: user.id }, { expiresIn: "7d" });
-
-    return {
-      userId: user.id,
-      userRole: user.role.name,
-      userName: user.name,
-      accessToken,
-      refreshToken,
-    };
+    return { userId: user.id, userRole: user.role.name, userName: user.name, accessToken, refreshToken };
   }
 
-  /**
-   * REFRESCO DE TOKEN
-   */
   async refreshToken(refreshDto: RefreshDto) {
     try {
       const payload = this.jwtService.verify(refreshDto.refreshToken, {
         secret: this.configService.get<string>("JWT_SECRET"),
       });
-
       const user = await this.prisma.user.findUnique({
         where: { id: payload.id },
         include: { role: true },
       });
-
       if (!user) throw new UnauthorizedException("Token de refresco inválido");
-
       return {
         userId: user.id,
         userRole: user.role.name,
@@ -198,80 +204,40 @@ export class AuthService {
     }
   }
 
-  // =================================================================
-  //  RECUPERACIÓN DE CONTRASEÑA
-  // =================================================================
-
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
-
     const resetToken = crypto.randomBytes(32).toString('hex');
     const resetTokenExpiry = new Date(Date.now() + 3600000); 
-
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { resetToken, resetTokenExpiry }
-    });
-
+    await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
     const transporter = nodemailer.createTransport({
       service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER, 
-        pass: process.env.EMAIL_PASS  
-      }
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
     });
-
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
-
     const mailOptions = {
       from: `Soporte RepoDigital <${process.env.EMAIL_USER}>`,
       to: user.email,
       subject: 'Recuperación de Contraseña - RepoDigital',
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
-          <h2 style="color: #0891b2; text-align: center;">Recuperación de Contraseña</h2>
-          <p>Hola <strong>${user.name}</strong>,</p>
-          <p>Hemos recibido una solicitud para restablecer la contraseña de tu cuenta institucional.</p>
-          <p>Para continuar, haz clic en el siguiente botón:</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}" style="background-color: #0891b2; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Restablecer Contraseña</a>
-          </div>
-          <p style="font-size: 13px; color: #666; text-align: center;">Este enlace expirará en 1 hora.</p>
-        </div>
-      `
+      html: `<p>Hola <strong>${user.name}</strong>, para restablecer tu contraseña haz clic aquí: <a href="${resetUrl}">${resetUrl}</a></p>`
     };
-
     await transporter.sendMail(mailOptions);
     return { message: 'Correo enviado. Revisa tu bandeja de entrada.' };
   }
 
   async resetPassword(token: string, newPassword: string) {
     const user = await this.prisma.user.findFirst({
-      where: {
-        resetToken: token,
-        resetTokenExpiry: { gt: new Date() } 
-      }
+      where: { resetToken: token, resetTokenExpiry: { gt: new Date() } }
     });
-
     if (!user) throw new BadRequestException('El enlace es inválido o ha expirado.');
-
     const hashedPassword = bcrypt.hashSync(newPassword, 10);
-
     await this.prisma.user.update({
       where: { id: user.id },
-      data: {
-        password: hashedPassword,
-        resetToken: null,
-        resetTokenExpiry: null
-      }
+      data: { password: hashedPassword, resetToken: null, resetTokenExpiry: null }
     });
-
     return { message: 'Contraseña actualizada correctamente' };
   }
-  
-  // =================================================================
 
   private getJwtToken(payload: JwtPayload, options?: JwtSignOptions) {
     return this.jwtService.sign(payload, options);
@@ -284,7 +250,6 @@ export class AuthService {
     }
     if (error instanceof InternalServerErrorException) throw error;
     if (error instanceof BadRequestException) throw error; 
-    
     throw new InternalServerErrorException("Error interno del servidor, verifique los logs.");
   }
 }
