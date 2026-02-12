@@ -3,6 +3,7 @@ import {
   Injectable,
   InternalServerErrorException,
   UnauthorizedException,
+  NotFoundException, // Importante para recuperar contraseña
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService, JwtSignOptions } from "@nestjs/jwt";
@@ -12,6 +13,9 @@ import { PrismaService } from "src/prisma/prisma.service";
 import { LoginDto } from "./dto/loginDto";
 import { RefreshDto } from "./dto/refreshDto";
 import { JwtPayload } from "./interfaces/jwt-payload.interface";
+// --- NUEVAS IMPORTACIONES ---
+import * as crypto from 'crypto'; 
+import * as nodemailer from 'nodemailer'; 
 
 @Injectable()
 export class AuthService {
@@ -27,11 +31,8 @@ export class AuthService {
    */
   async register(createUserDto: CreateUserDto) {
     try {
-      // 1. Extraemos roleId y lo renombramos a '_' para ignorar lo que venga del frontend.
-      // Esto limpia el objeto userDto de cualquier propiedad 'undefined'.
       const { password, email, roleId: _, ...userDto } = createUserDto;
 
-      // 2. Buscamos el ID del rol de lector ('user') en la base de datos
       const role = await this.prisma.role.findFirst({
         where: { name: 'USER' }, 
       });
@@ -44,17 +45,15 @@ export class AuthService {
 
       const hashedPassword = bcrypt.hashSync(password, 10);
 
-      // 3. Creamos el usuario pasando el roleId obligatorio manualmente
       const user = await this.prisma.user.create({
         data: {
           ...userDto,
           email: email.toLowerCase(),
           password: hashedPassword,
-          roleId: role.id, // Asignamos el string garantizado de la base de datos
+          roleId: role.id, 
         },
       });
 
-      // Limpiamos la respuesta
       const { password: __, ...result } = user;
       
       return {
@@ -112,7 +111,6 @@ export class AuthService {
 
     if (!user) throw new UnauthorizedException("Credenciales no válidas (Email)");
     
-    // Comparamos el texto plano con el hash de la BD
     const isPasswordValid = bcrypt.compareSync(password, user.password);
     if (!isPasswordValid)
       throw new UnauthorizedException("Credenciales no válidas (Password)");
@@ -155,13 +153,105 @@ export class AuthService {
       throw new UnauthorizedException("Token de refresco expirado o inválido");
     }
   }
+
+  // =================================================================
+  //  NUEVAS FUNCIONES PARA RECUPERACIÓN DE CONTRASEÑA
+  // =================================================================
+
+  /**
+   * 1. SOLICITAR RECUPERACIÓN (Genera token y envía correo)
+   */
+  async forgotPassword(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (!user) throw new NotFoundException('Correo no encontrado');
+
+    // Generar token aleatorio
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hora de validez
+
+    // Guardar en BD
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { resetToken, resetTokenExpiry }
+    });
+
+    // Configurar envío de correo usando VARIABLES DE ENTORNO
+    // ESTO ES CLAVE PARA QUE FUNCIONE EN RENDER
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER, // Render leerá esto de tus Environment Variables
+        pass: process.env.EMAIL_PASS  // Render leerá esto de tus Environment Variables
+      }
+    });
+
+    // Lógica inteligente: Si hay variable FRONTEND_URL úsala, sino usa localhost
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
+
+    const mailOptions = {
+      from: `Soporte RepoDigital <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: 'Recuperación de Contraseña - RepoDigital',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px;">
+          <h2 style="color: #0891b2; text-align: center;">Recuperación de Contraseña</h2>
+          <p>Hola <strong>${user.name}</strong>,</p>
+          <p>Hemos recibido una solicitud para restablecer la contraseña de tu cuenta institucional.</p>
+          <p>Para continuar, haz clic en el siguiente botón:</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetUrl}" style="background-color: #0891b2; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Restablecer Contraseña</a>
+          </div>
+          
+          <p style="font-size: 13px; color: #666; text-align: center;">
+            Este enlace expirará en 1 hora. Si no solicitaste este cambio, puedes ignorar este mensaje.
+          </p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    return { message: 'Correo enviado. Revisa tu bandeja de entrada.' };
+  }
+
+  /**
+   * 2. RESTABLECER LA CONTRASEÑA (Recibe token y nueva pass)
+   */
+  async resetPassword(token: string, newPassword: string) {
+    // Buscar usuario con ese token y que no haya expirado
+    const user = await this.prisma.user.findFirst({
+      where: {
+        resetToken: token,
+        resetTokenExpiry: { gt: new Date() } 
+      }
+    });
+
+    if (!user) throw new BadRequestException('El enlace es inválido o ha expirado.');
+
+    // Hashear nueva contraseña
+    const hashedPassword = bcrypt.hashSync(newPassword, 10);
+
+    // Actualizar usuario y limpiar el token
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        resetToken: null,
+        resetTokenExpiry: null
+      }
+    });
+
+    return { message: 'Contraseña actualizada correctamente' };
+  }
   
+  // =================================================================
+
   private getJwtToken(payload: JwtPayload, options?: JwtSignOptions) {
     return this.jwtService.sign(payload, options);
   }
 
   private handleDBErrors(error: any): never {
-    // Log para depuración en consola
     console.error("AuthService Error:", error);
 
     if (error.code === 'P2002') {

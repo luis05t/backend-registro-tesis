@@ -678,10 +678,6 @@ export type ProjectUpdatedeliverablesInput = {
   push?: string | string[]
 }
 
-export type NullableDateTimeFieldUpdateOperationsInput = {
-  set?: Date | string | null
-}
-
 export type ProjectCreateNestedOneWithoutUserProjectsInput = {
   create?: Prisma.XOR<Prisma.ProjectCreateWithoutUserProjectsInput, Prisma.ProjectUncheckedCreateWithoutUserProjectsInput>
   connectOrCreate?: Prisma.ProjectCreateOrConnectWithoutUserProjectsInput
