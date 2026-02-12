@@ -21,7 +21,8 @@ async function bootstrap() {
                 'http://localhost:5173',
                 'http://localhost',
                 /\.vercel\.app$/,      
-                /\.devtunnels\.ms$/,   
+                /\.devtunnels\.ms$/,  
+                /\.onrender\.com$/, 
             ];
             
         
