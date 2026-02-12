@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, InternalServerErrorException, ConflictException, BadRequestException } from '@nestjs/common';
+import { 
+  Injectable, 
+  NotFoundException, 
+  InternalServerErrorException, 
+  ConflictException, 
+  BadRequestException 
+} from '@nestjs/common';
 import { BaseService } from 'src/prisma/base.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -7,6 +13,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { PaginationDto } from 'src/Libs/common';
 import { Prisma } from 'src/prisma/generated/client'; 
+import * as deepEmailValidator from 'deep-email-validator';
 
 @Injectable()
 export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUserDto> {
@@ -21,7 +28,6 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   async create(createUserDto: CreateUserDto) {
     const { password, email, roleId: _, ...rest } = createUserDto;
 
-    // Buscamos el rol de lector por defecto ('user')
     const role = await this.prismaService.role.findFirst({
       where: { name: 'USER' }
     });
@@ -29,6 +35,31 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     if (!role) {
       throw new InternalServerErrorException('El rol de lector (user) no ha sido inicializado. Ejecuta el seed.');
     }
+
+    // --- VALIDACIÓN HÍBRIDA DE CORREO ---
+    // Detectamos si estamos en Producción (Render) o Local
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    const res = await deepEmailValidator.validate({
+      email: email,
+      validateRegex: true,
+      validateTypo: true,
+      validateDisposable: true,
+      // Automático: True en Producción (Estricto), False en Local (Permisivo)
+      validateMx: isProduction,    
+      validateSMTP: isProduction, 
+    });
+
+    if (!res.valid) {
+      const errorReason = res.reason;
+      const details = errorReason ? res.validators[errorReason] : null;
+      const message = details?.reason || errorReason || 'Desconocida';
+
+      throw new BadRequestException(
+        `El correo electrónico no es válido o no existe. Razón: ${message}`
+      );
+    }
+    // ----------------------------------------------------
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -49,10 +80,34 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
 
   /**
    * 2. Registro de Docente (Solo Admin):
-   * Forza la asignación del rol 'TEACHER'.
+   * Forza la asignación del rol 'TEACHER' y VERIFICA el correo.
    */
   async createTeacher(createUserDto: CreateUserDto) {
-    const { password, email, name, careerId } = createUserDto;
+    const { password, email, name, careerId } = createUserDto as any; 
+
+    // --- VALIDACIÓN HÍBRIDA DE CORREO ---
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    const res = await deepEmailValidator.validate({
+      email: email,
+      validateRegex: true,
+      validateTypo: true,
+      validateDisposable: true,
+      // Automático: True en Producción (Estricto), False en Local (Permisivo)
+      validateMx: isProduction,    
+      validateSMTP: isProduction, 
+    });
+
+    if (!res.valid) {
+      const errorReason = res.reason;
+      const details = errorReason ? res.validators[errorReason] : null;
+      const message = details?.reason || errorReason || 'Desconocida';
+
+      throw new BadRequestException(
+        `No se puede registrar al docente. El correo no existe o es inválido. Razón: ${message}`
+      );
+    }
+    // ----------------------------------------------------
 
     // Buscamos el rol 'TEACHER'
     const role = await this.prismaService.role.findFirst({
@@ -61,6 +116,10 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     
     if (!role) {
       throw new InternalServerErrorException('El rol TEACHER no existe en la base de datos.');
+    }
+
+    if (!careerId) {
+       throw new BadRequestException('El ID de la carrera (careerId) es obligatorio para registrar un docente.');
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -192,7 +251,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   }
 
   /**
-   * 7. Eliminar Usuario (Soft delete o Hard delete según config, aquí es Hard Delete)
+   * 7. Eliminar Usuario (Hard delete)
    */
   async remove(id: string) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
@@ -211,22 +270,24 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   // HELPER PRIVADO PARA MANEJO DE ERRORES PRISMA
   // =================================================================
   private handleDBErrors(error: any): never {
-    // Si es un error conocido de Prisma
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       // P2002: Violación de restricción única (ej. email duplicado)
       if (error.code === 'P2002') {
-        throw new ConflictException('El correo electrónico ya está registrado en el sistema.');
+        throw new ConflictException('El correo electrónico ya se encuentra registrado');
       }
       // P2003: Violación de clave foránea (ej. careerId no existe)
       if (error.code === 'P2003') {
         throw new BadRequestException('La carrera seleccionada (ID) no existe en la base de datos.');
       }
     }
+    
+    // Si el error viene de deep-email-validator (BadRequestException lanzado arriba)
+    if (error instanceof BadRequestException) {
+        throw error;
+    }
 
-    // Logueamos el error original en consola para debugging
     console.error(error);
     
-    // Lanzamos un error 500 genérico si no lo pudimos identificar
     throw new InternalServerErrorException('Error inesperado en el servidor, revise los logs.');
   }
 }
