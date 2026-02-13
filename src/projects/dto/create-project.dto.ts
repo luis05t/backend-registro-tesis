@@ -78,11 +78,4 @@ export class CreateProjectDto {
   @IsOptional()
   @IsUUID()
   createdBy?: string;
-
-  // --- NUEVO CAMPO PARA SINCRONIZACIÓN DE HABILIDADES ---
-  @ApiProperty({ required: false, type: [String], description: 'Arreglo de IDs de habilidades' })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  skills?: string[]; 
 }
