@@ -96,7 +96,7 @@ export class AuthService {
     } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  // --- ENVÍO DE CORREO (CAMBIO A PUERTO 587) ---
+  // --- ENVÍO DE CORREO (COMBINACIÓN GANADORA: IP MANUAL + PUERTO 465) ---
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
@@ -107,25 +107,26 @@ export class AuthService {
     try {
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-      console.log("Resolviendo DNS IPv4 para smtp.gmail.com...");
-      
+      console.log("1. Iniciando resolución DNS IPv4...");
       const resolve4 = promisify(dns.resolve4);
       let gmailIp = 'smtp.gmail.com'; 
       try {
         const addresses = await resolve4('smtp.gmail.com');
         if (addresses && addresses.length > 0) {
           gmailIp = addresses[0];
-          console.log(`DNS Resuelto manualmente a: ${gmailIp}`);
+          console.log(`2. IP Resuelta: ${gmailIp}`);
         }
       } catch (dnsError) {
-        console.error("Fallo resolución manual DNS, usando default:", dnsError);
+        console.error("Fallo DNS manual:", dnsError);
       }
 
-      // CAMBIOS AQUÍ: PUERTO 587 Y SECURE FALSE
+      console.log(`3. Conectando a ${gmailIp} en puerto 465 (SSL)...`);
+
+      // CONFIGURACIÓN: IP MANUAL + PUERTO 465
       const transporter = nodemailer.createTransport({
         host: gmailIp,            
-        port: 587,                // <--- CAMBIO: Puerto estándar TLS
-        secure: false,            // <--- CAMBIO: STARTTLS requiere false al inicio
+        port: 465,                // Volvemos al puerto seguro SSL
+        secure: true,             // Obligatorio true para 465
         auth: {
           type: 'OAuth2',
           user: this.configService.get('MAIL_USER'),
@@ -134,9 +135,12 @@ export class AuthService {
           refreshToken: this.configService.get('MAIL_REFRESH_TOKEN'),
         },
         tls: {
-          servername: 'smtp.gmail.com', 
+          servername: 'smtp.gmail.com', // Vital para que el certificado coincida
           rejectUnauthorized: false
-        }
+        },
+        connectionTimeout: 10000, // 10 segundos máximo para conectar
+        greetingTimeout: 10000,   // 10 segundos para el saludo SMTP
+        socketTimeout: 10000,
       } as any);
 
       const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
@@ -156,11 +160,11 @@ export class AuthService {
         `
       });
 
-      console.log("Correo enviado con éxito.");
+      console.log("4. ¡Correo enviado con éxito!");
       return { message: 'Correo enviado correctamente.' };
     } catch (error) {
       console.error("Error FATAL enviando correo:", error);
-      throw new InternalServerErrorException("Error al enviar el correo. Revisa los logs del servidor.");
+      throw new InternalServerErrorException("Error al enviar el correo. Revisa los logs.");
     }
   }
 
