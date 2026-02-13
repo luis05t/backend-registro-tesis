@@ -25,22 +25,26 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  // --- 1. LISTA BLANCA DE DOMINIOS ---
+  // --- 1. CONFIGURACIÓN DE LISTA BLANCA ESTRICTA ---
   private isDomainAllowed(email: string): boolean {
     const domain = email.split('@')[1].toLowerCase();
+    
     const allowedDomains = [
       'sudamericano.edu.ec', 'gmail.com', 'outlook.com', 'hotmail.com',
       'yahoo.com', 'yahoo.es', 'icloud.com', 'live.com', 'msn.com',
       'me.com', 'zoho.com'
     ];
+
     const allowedExtensions = ['.edu.ec', '.edu', '.gob', '.gov'];
+
     const isInList = allowedDomains.includes(domain);
     const hasValidExtension = allowedExtensions.some(ext => domain.endsWith(ext));
+
     return isInList || hasValidExtension;
   }
 
   /**
-   * REGISTRO PÚBLICO
+   * REGISTRO PÚBLICO (Estudiantes)
    */
   async register(createUserDto: CreateUserDto) {
     try {
@@ -52,13 +56,18 @@ export class AuthService {
 
       const isProduction = process.env.NODE_ENV === 'production';
       const res = await deepEmailValidator.validate({
-        email, validateRegex: true, validateTypo: false, validateDisposable: true, validateMx: isProduction, validateSMTP: false,
+        email, 
+        validateRegex: true, 
+        validateTypo: false, // CLAVE: Acepta .edu.ec sin sugerir errores
+        validateDisposable: true, 
+        validateMx: isProduction, 
+        validateSMTP: false, // CLAVE: Evita errores 500 en Render
       });
 
       if (!res.valid) throw new BadRequestException('Correo electrónico inválido o inexistente.');
 
       const role = await this.prisma.role.findFirst({ where: { name: 'USER' } });
-      if (!role) throw new InternalServerErrorException("Rol 'USER' no inicializado.");
+      if (!role) throw new InternalServerErrorException("El rol 'USER' no ha sido inicializado.");
 
       const hashedPassword = bcrypt.hashSync(password, 10);
       const user = await this.prisma.user.create({
@@ -73,21 +82,21 @@ export class AuthService {
   }
 
   /**
-   * REGISTRO ADMINISTRATIVO
+   * REGISTRO ADMINISTRATIVO (Docentes)
    */
   async registerAdmin(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId, ...userDto } = createUserDto;
       if (!roleId) throw new BadRequestException("El roleId es obligatorio.");
 
-      if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio no autorizado.');
+      if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio institucional o comercial autorizado requerido.');
 
       const isProduction = process.env.NODE_ENV === 'production';
       const res = await deepEmailValidator.validate({
         email, validateRegex: true, validateTypo: false, validateDisposable: true, validateMx: isProduction, validateSMTP: false,
       });
 
-      if (!res.valid) throw new BadRequestException('Correo inválido.');
+      if (!res.valid) throw new BadRequestException('Correo del docente inválido.');
 
       const hashedPassword = bcrypt.hashSync(password, 10);
       const user = await this.prisma.user.create({
@@ -126,7 +135,7 @@ export class AuthService {
   }
 
   /**
-   * --- FUNCIÓN QUE FALTABA: REFRESH TOKEN ---
+   * REFRESH TOKEN (Soluciona el error de Build en Render)
    */
   async refreshToken(refreshDto: RefreshDto) {
     try {
@@ -153,33 +162,49 @@ export class AuthService {
   }
 
   /**
-   * RECUPERACIÓN DE CONTRASEÑA
+   * RECUPERACIÓN DE CONTRASEÑA (Mejorado)
    */
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 3600000); 
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hora de validez
 
-    await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
+    try {
+      await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
-    });
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { 
+          user: this.configService.get('EMAIL_USER'), 
+          pass: this.configService.get('EMAIL_PASS') 
+        }
+      });
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
+      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
+      const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
-    await transporter.sendMail({
-      from: `Soporte RepoDigital <${process.env.EMAIL_USER}>`,
-      to: user.email,
-      subject: 'Recuperación de Contraseña',
-      html: `<p>Hola <strong>${user.name}</strong>, usa este enlace para cambiar tu clave: <a href="${resetUrl}">${resetUrl}</a></p>`
-    });
+      await transporter.sendMail({
+        from: `"Soporte RepoDigital ITS" <${this.configService.get('EMAIL_USER')}>`,
+        to: user.email,
+        subject: 'Recuperación de Contraseña - RepoDigital',
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee;">
+            <h2 style="color: #0891b2;">Recuperación de Contraseña</h2>
+            <p>Hola <strong>${user.name}</strong>,</p>
+            <p>Has solicitado restablecer tu contraseña para el repositorio institucional.</p>
+            <p>Haz clic en el enlace de abajo para continuar (expira en 1 hora):</p>
+            <a href="${resetUrl}" style="background: #0891b2; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Restablecer Contraseña</a>
+          </div>
+        `
+      });
 
-    return { message: 'Correo enviado. Revisa tu bandeja de entrada.' };
+      return { message: 'Correo enviado. Revisa tu bandeja de entrada.' };
+    } catch (error) {
+      console.error("Error en forgotPassword:", error);
+      throw new InternalServerErrorException("No se pudo enviar el correo de recuperación.");
+    }
   }
 
   async resetPassword(token: string, newPassword: string) {
@@ -205,6 +230,7 @@ export class AuthService {
   private handleDBErrors(error: any): never {
     if (error.code === 'P2002') throw new BadRequestException('El correo ya está registrado');
     console.error("AuthService Error:", error);
+    if (error instanceof BadRequestException || error instanceof UnauthorizedException || error instanceof NotFoundException) throw error;
     throw new InternalServerErrorException("Error interno del servidor.");
   }
 }
