@@ -1,224 +1,169 @@
-import { 
-  Injectable, 
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  UnauthorizedException,
   NotFoundException, 
-  InternalServerErrorException, 
-  ConflictException, 
-  BadRequestException 
-} from '@nestjs/common';
-import { BaseService } from 'src/prisma/base.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { UserModel } from 'src/prisma/generated/models';
-import { PrismaService } from 'src/prisma/prisma.service';
-import * as bcrypt from 'bcrypt';
-import { PaginationDto } from 'src/Libs/common';
-import { Prisma } from 'src/prisma/generated/client'; 
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { JwtService, JwtSignOptions } from "@nestjs/jwt";
+import * as bcrypt from "bcrypt"; 
+import { CreateUserDto } from "src/users/dto/create-user.dto";
+import { PrismaService } from "src/prisma/prisma.service";
+import { LoginDto } from "src/auth/dto/loginDto"; 
+import { RefreshDto } from "src/auth/dto/refreshDto"; 
+import { JwtPayload } from "src/auth/interfaces"; 
+import * as crypto from 'crypto'; 
+import * as nodemailer from 'nodemailer'; 
 import * as deepEmailValidator from 'deep-email-validator';
 
 @Injectable()
-export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUserDto> {
-  constructor(private readonly prismaService: PrismaService) {
-    super(prismaService, { name: 'user' });
-  }
+export class AuthService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
 
-  // --- CONFIGURACIÓN DE LISTA BLANCA DE DOMINIOS ---
+  // --- VALIDACIONES ---
   private isDomainAllowed(email: string): boolean {
-    if (!email.includes('@')) return false;
     const domain = email.split('@')[1].toLowerCase();
-    
-    const allowedDomains = [
-      'sudamericano.edu.ec',
-      'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 
-      'yahoo.es', 'icloud.com', 'live.com', 'msn.com', 'me.com', 'zoho.com'
-    ];
-
-    const allowedExtensions = [
-      '.edu.ec', '.gob.ec', '.org.ec', 
-      '.ec',                           
-      '.edu', '.gob', '.gov',          
-    ];
-
+    const allowedDomains = ['sudamericano.edu.ec', 'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com'];
+    const allowedExtensions = ['.edu.ec', '.gob.ec', '.org.ec', '.com.ec', '.net.ec', '.ec', '.com', '.edu'];
     return allowedDomains.includes(domain) || allowedExtensions.some(ext => domain.endsWith(ext));
   }
 
-  // --- VALIDADOR DE CORREO ---
-  private async validateEmailDeep(email: string) {
-    const isProduction = process.env.NODE_ENV === 'production';
-    
-    const res = await deepEmailValidator.validate({
-      email: email,
-      validateRegex: true,
-      validateTypo: false,       
-      validateDisposable: true,
-      validateMx: isProduction,  
-      validateSMTP: false,       
-    });
-
-    if (!res.valid) {
-      const reason = res.reason || 'formato inválido';
-      throw new BadRequestException(`El correo electrónico no es válido. Razón: ${reason}`);
-    }
-  }
-
-  /**
-   * 1. Registro Público / General (Estudiantes - Rol USER)
-   */
-  async create(createUserDto: CreateUserDto) {
-    const { password, email, roleId: _, ...rest } = createUserDto;
-
-    if (!this.isDomainAllowed(email)) {
-      throw new BadRequestException('Dominio de correo no permitido.');
-    }
-
-    await this.validateEmailDeep(email);
-
-    const role = await this.prismaService.role.findFirst({ where: { name: 'USER' } });
-    if (!role) throw new InternalServerErrorException('Error: El rol USER no existe.');
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
+  // --- REGISTRO Y LOGIN ---
+  async register(createUserDto: CreateUserDto) {
     try {
-      const user = await this.prismaService.user.create({
-        data: {
-          ...rest,
-          email: email.toLowerCase(),
-          password: hashedPassword,
-          roleId: role.id,
-        },
-        include: { role: true, career: true }
-      });
-      
-      // SOLUCIÓN AL ERROR DE TYPESCRIPT:
-      // Quitamos el password pero forzamos el tipo 'UserModel' para cumplir con BaseService
-      const { password: __, ...userWithoutPassword } = user;
-      return userWithoutPassword as unknown as UserModel;
+      const { password, email, roleId: _, ...userDto } = createUserDto;
+      if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio de correo no permitido.');
 
-    } catch (error) {
-      this.handleDBErrors(error);
-    }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) throw new BadRequestException('Correo inválido.');
+
+      const role = await this.prisma.role.findFirst({ where: { name: 'USER' } });
+      if (!role) throw new InternalServerErrorException("Error: El rol 'USER' no existe.");
+
+      const hashedPassword = bcrypt.hashSync(password, 10);
+      const user = await this.prisma.user.create({
+        data: { ...userDto, email: email.toLowerCase(), password: hashedPassword, roleId: role.id },
+      });
+      return { user, token: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }) };
+    } catch (error) { this.handleDBErrors(error); }
   }
 
-  /**
-   * 2. Registro de Docente (Solo Admin - Rol TEACHER)
-   */
-  async createTeacher(createUserDto: CreateUserDto) {
-    const { password, email, name, careerId } = createUserDto as any; 
-
-    if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio de correo no permitido.');
-    await this.validateEmailDeep(email);
-
-    if (!careerId) throw new BadRequestException('El ID de la carrera es obligatorio.');
-
-    const role = await this.prismaService.role.findFirst({ where: { name: 'TEACHER' } });
-    if (!role) throw new InternalServerErrorException('Error: El rol TEACHER no existe.');
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
+  async registerAdmin(createUserDto: CreateUserDto) {
     try {
-      const user = await this.prismaService.user.create({
-        data: {
-          name,
-          email: email.toLowerCase(),
-          password: hashedPassword,
-          roleId: role.id,
-          careerId: careerId,
-        },
-        include: { role: true, career: true }
-      });
-      
-      // SOLUCIÓN AL ERROR DE TYPESCRIPT:
-      const { password: __, ...userWithoutPassword } = user;
-      return userWithoutPassword as unknown as UserModel;
+      const { password, email, roleId, ...userDto } = createUserDto;
+      if (!roleId) throw new BadRequestException("El roleId es obligatorio.");
 
-    } catch (error) {
-      this.handleDBErrors(error);
-    }
+      const hashedPassword = bcrypt.hashSync(password, 10);
+      const user = await this.prisma.user.create({
+        data: { ...userDto, email: email.toLowerCase(), password: hashedPassword, roleId },
+        include: { role: true }
+      });
+
+      const { password: _, ...result } = user;
+      return result;
+    } catch (error) { this.handleDBErrors(error); }
   }
 
-  // --- MÉTODOS ESTÁNDAR ---
-
-  async findAll(paginationDto?: PaginationDto) {
-    const { limit = 10, page = 1, order = 'desc' } = paginationDto || {};
-    const skip = (page - 1) * limit;
-    
-    const total = await this.prismaService.user.count();
-    const data = await this.prismaService.user.findMany({
-      skip, 
-      take: limit, 
-      include: { role: true, career: true }, 
-      orderBy: { createdAt: order }
-    });
-
-    const totalPages = Math.ceil(total / limit);
-    return { 
-      data, 
-      meta: { 
-        total, 
-        pagination: { page, limit, order: order as "asc" | "desc" }, 
-        totalPages, 
-        hasNextPage: page < totalPages, 
-        hasPreviousPage: page > 1 
-      } 
+  async login(loginDto: LoginDto) {
+    const { password, email } = loginDto;
+    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() }, include: { role: true } });
+    if (!user) throw new UnauthorizedException("correo no registrado");
+    const isPasswordValid = bcrypt.compareSync(password, user.password);
+    if (!isPasswordValid) throw new UnauthorizedException("contraseña incorrecta");
+    return {
+      userId: user.id, userRole: user.role.name, userName: user.name,
+      accessToken: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
+      refreshToken: this.getJwtToken({ id: user.id }, { expiresIn: "7d" }),
     };
   }
 
-  async findOne(id: string) {
-    const user = await this.prismaService.user.findUnique({ 
-      where: { id }, 
-      include: { role: true, career: true } 
-    });
-    if (!user) throw new NotFoundException(`Usuario no encontrado`);
-    return user;
+  async refreshToken(refreshDto: RefreshDto) {
+    try {
+      const payload = this.jwtService.verify(refreshDto.refreshToken, { secret: this.configService.get<string>("JWT_SECRET") });
+      const user = await this.prisma.user.findUnique({ where: { id: payload.id }, include: { role: true } });
+      if (!user) throw new UnauthorizedException("Token inválido");
+      return {
+        userId: user.id, userRole: user.role.name,
+        accessToken: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
+        refreshToken: this.getJwtToken({ id: user.id }, { expiresIn: "7d" }),
+      };
+    } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto) {
-    const user = await this.prismaService.user.findUnique({ where: { id } });
-    if (!user) throw new NotFoundException(`Usuario no encontrado`);
+  // --- ENVÍO DE CORREO (SOLUCIÓN FINAL IPV4) ---
+  async forgotPassword(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (!user) throw new NotFoundException('Correo no encontrado');
 
-    const { password, email, roleId: _, ...rest } = updateUserDto;
-    
-    let dataToUpdate: any = { ...rest };
-    if (email) dataToUpdate.email = email.toLowerCase();
-    if (password) dataToUpdate.password = await bcrypt.hash(password, 10);
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000); 
 
     try {
-      return await this.prismaService.user.update({ 
-        where: { id }, 
-        data: dataToUpdate, 
-        include: { role: true, career: true } 
+      await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
+
+      // CONFIGURACIÓN OBLIGATORIA PARA RENDER
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',   // Host explícito
+        port: 465,                // Puerto seguro
+        secure: true,             // SSL activado
+        family: 4,                // <--- ¡ESTA LÍNEA ES LA QUE ARREGLA TU ERROR 2607...! (Fuerza IPv4)
+        auth: {
+          type: 'OAuth2',
+          user: this.configService.get('MAIL_USER'),
+          clientId: this.configService.get('MAIL_CLIENT_ID'),
+          clientSecret: this.configService.get('MAIL_CLIENT_SECRET'),
+          refreshToken: this.configService.get('MAIL_REFRESH_TOKEN'),
+        },
+      } as any);
+
+      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
+      const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
+
+      await transporter.sendMail({
+        from: `"Soporte Tesis" <${this.configService.get('MAIL_USER')}>`,
+        to: user.email, 
+        subject: 'Recuperación de Contraseña',
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+            <h2 style="color: #0056b3;">Recuperación de Contraseña</h2>
+            <p>Hola <strong>${user.name}</strong>,</p>
+            <p>Hemos recibido una solicitud para restablecer tu contraseña.</p>
+            <p>Haz clic en el siguiente botón para continuar:</p>
+            <a href="${resetUrl}" style="background-color: #0056b3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0;">Restablecer Contraseña</a>
+            <p style="font-size: 12px; color: #666; margin-top: 20px;">Este enlace expirará en 1 hora.</p>
+          </div>
+        `
       });
-    } catch (error) { this.handleDBErrors(error); }
-  }
 
-  async updateImage(id: string, file: Express.Multer.File) {
-    const user = await this.prismaService.user.findUnique({ where: { id } });
-    if (!user) throw new NotFoundException(`Usuario no encontrado`);
-
-    return this.prismaService.user.update({ 
-      where: { id }, 
-      data: { image: `/uploads/${file.filename}` }, 
-      include: { role: true, career: true } 
-    });
-  }
-
-  async remove(id: string) {
-    const user = await this.prismaService.user.findUnique({ where: { id } });
-    if (!user) throw new NotFoundException(`Usuario no encontrado`);
-    
-    try { 
-      return await this.prismaService.user.delete({ where: { id } }); 
-    } catch (error) { this.handleDBErrors(error); }
-  }
-
-  // --- MANEJO DE ERRORES ---
-  private handleDBErrors(error: any): never {
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') throw new ConflictException('El correo electrónico ya se encuentra registrado');
-      if (error.code === 'P2003') throw new BadRequestException('La carrera seleccionada no existe o datos relacionados inválidos.');
+      return { message: 'Correo enviado correctamente.' };
+    } catch (error) {
+      console.error("Error enviando correo (OAuth2):", error);
+      throw new InternalServerErrorException("Error al enviar el correo.");
     }
-    if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
-    
-    console.error("Error Database:", error);
-    throw new InternalServerErrorException('Error inesperado en el servidor.');
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const user = await this.prisma.user.findFirst({ where: { resetToken: token, resetTokenExpiry: { gt: new Date() } } });
+    if (!user) throw new BadRequestException('El enlace es inválido o ha expirado.');
+
+    const hashedPassword = bcrypt.hashSync(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword, resetToken: null, resetTokenExpiry: null }
+    });
+
+    return { message: 'Contraseña actualizada correctamente' };
+  }
+
+  private getJwtToken(payload: JwtPayload, options?: JwtSignOptions) { return this.jwtService.sign(payload, options); }
+
+  private handleDBErrors(error: any): never {
+    if (error.code === 'P2002') throw new BadRequestException('Correo ya registrado');
+    throw new InternalServerErrorException("Error interno del servidor.");
   }
 }
