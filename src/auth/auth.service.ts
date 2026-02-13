@@ -38,10 +38,9 @@ export class AuthService {
     ];
 
     // Lista de extensiones institucionales permitidas
-    // ⚠️ Se eliminó '.ec' genérico para bloquear errores como 'eu.ec' o 'a.ec'
     const allowedExtensions = [
       '.edu.ec', '.gob.ec', '.org.ec',
-      '.ec',                           // Institucionales Ecuador
+      '.ec',    // Institucionales Ecuador
       '.edu', '.gob', '.gov',          // Institucionales globales
     ];
 
@@ -63,15 +62,14 @@ export class AuthService {
         throw new BadRequestException('Dominio de correo no permitido. Use .edu.ec o proveedores oficiales.');
       }
 
-      const isProduction = process.env.NODE_ENV === 'production';
-      
+      // IMPORTANTE: En Render, validateMx y validateSMTP deben ser FALSE para evitar Error 500
       const res = await deepEmailValidator.validate({
         email, 
         validateRegex: true, 
         validateTypo: false, 
         validateDisposable: true, 
-        validateMx: isProduction, 
-        validateSMTP: false, 
+        validateMx: false,   // Desactivado para Render
+        validateSMTP: false, // Desactivado para Render
       });
 
       if (!res.valid) throw new BadRequestException('Correo electrónico inválido o inexistente.');
@@ -101,9 +99,13 @@ export class AuthService {
 
       if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio institucional o comercial autorizado requerido.');
 
-      const isProduction = process.env.NODE_ENV === 'production';
       const res = await deepEmailValidator.validate({
-        email, validateRegex: true, validateTypo: false, validateDisposable: true, validateMx: isProduction, validateSMTP: false,
+        email, 
+        validateRegex: true, 
+        validateTypo: false, 
+        validateDisposable: true, 
+        validateMx: false, 
+        validateSMTP: false,
       });
 
       if (!res.valid) throw new BadRequestException('Correo del docente inválido.');
@@ -178,6 +180,7 @@ export class AuthService {
    * RECUPERACIÓN DE CONTRASEÑA
    */
   async forgotPassword(email: string) {
+    // Buscar usuario primero para evitar procesos pesados si no existe
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
 
@@ -199,7 +202,7 @@ export class AuthService {
       const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
       await transporter.sendMail({
-        from: `"Soporte RepoDigital ITS" <${this.configService.get('EMAIL_USER')}>`,
+        from: `"Soporte RepoDigital" <${this.configService.get('EMAIL_USER')}>`,
         to: user.email,
         subject: 'Recuperación de Contraseña - RepoDigital',
         html: `
@@ -215,8 +218,8 @@ export class AuthService {
 
       return { message: 'Correo enviado. Revisa tu bandeja de entrada.' };
     } catch (error) {
-      console.error("Error en forgotPassword:", error);
-      throw new InternalServerErrorException("No se pudo enviar el correo de recuperación.");
+      console.error("Error crítico en forgotPassword:", error);
+      throw new InternalServerErrorException("No se pudo procesar la solicitud de recuperación.");
     }
   }
 
