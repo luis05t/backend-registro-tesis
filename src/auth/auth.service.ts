@@ -10,9 +10,9 @@ import { JwtService, JwtSignOptions } from "@nestjs/jwt";
 import * as bcrypt from "bcrypt"; 
 import { CreateUserDto } from "src/users/dto/create-user.dto";
 import { PrismaService } from "src/prisma/prisma.service";
-import { LoginDto } from "./dto/loginDto";
-import { RefreshDto } from "./dto/refreshDto";
-import { JwtPayload } from "./interfaces/jwt-payload.interface";
+import { LoginDto } from "src/auth/dto/loginDto"; 
+import { RefreshDto } from "src/auth/dto/refreshDto"; 
+import { JwtPayload } from "src/auth/interfaces"; 
 import * as crypto from 'crypto'; 
 import * as nodemailer from 'nodemailer'; 
 import * as deepEmailValidator from 'deep-email-validator';
@@ -95,7 +95,7 @@ export class AuthService {
     } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  // --- ENVÍO DE CORREO (SOLUCIÓN ETIMEDOUT) ---
+  // --- ENVÍO DE CORREO (SOLUCIÓN FINAL IPV4) ---
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
@@ -106,11 +106,12 @@ export class AuthService {
     try {
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-      // ⚠️ AQUÍ ESTÁ EL CAMBIO CLAVE PARA QUE NO FALLE EN RENDER ⚠️
+      // CONFIGURACIÓN OBLIGATORIA PARA RENDER
       const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',  // Servidor explícito de Gmail
-        port: 465,               // Puerto seguro SSL
-        secure: true,            // Requerido para puerto 465
+        host: 'smtp.gmail.com',   // Host explícito
+        port: 465,                // Puerto seguro
+        secure: true,             // SSL activado
+        family: 4,                // <--- ¡ESTA LÍNEA ES LA QUE ARREGLA TU ERROR 2607...! (Fuerza IPv4)
         auth: {
           type: 'OAuth2',
           user: this.configService.get('MAIL_USER'),
