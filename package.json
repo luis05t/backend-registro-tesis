@@ -40,6 +40,8 @@
     "class-validator": "^0.14.2",
     "deep-email-validator": "^0.1.21",
     "dotenv": "^17.2.4",
+    "google-auth-library": "^10.5.0",
+    "googleapis": "^171.4.0",
     "nodemailer": "^8.0.1",
     "passport-jwt": "^4.0.1",
     "pg": "^8.17.1",
