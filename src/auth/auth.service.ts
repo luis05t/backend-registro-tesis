@@ -14,8 +14,8 @@ import { LoginDto } from "./dto/loginDto";
 import { RefreshDto } from "./dto/refreshDto";
 import { JwtPayload } from "./interfaces/jwt-payload.interface";
 import * as crypto from 'crypto'; 
-import * as nodemailer from 'nodemailer'; 
 import * as deepEmailValidator from 'deep-email-validator';
+import { Resend } from 'resend'; // <--- IMPORTANTE: Usamos Resend
 
 @Injectable()
 export class AuthService {
@@ -46,25 +46,7 @@ export class AuthService {
     return isInList || hasValidExtension;
   }
 
-  // --- 2. DETECTOR DINÁMICO DE PROVEEDORES ---
-  private getSmtpConfig() {
-    const emailUser = this.configService.get<string>('EMAIL_USER') || '';
-    const domain = emailUser.split('@')[1]?.toLowerCase() || '';
-
-    if (domain.includes('gmail') || domain.includes('sudamericano.edu.ec')) {
-      return { host: 'smtp.gmail.com', port: 587, secure: false };
-    }
-
-    if (domain.includes('outlook') || domain.includes('hotmail') || domain.includes('live') || domain.includes('msn')) {
-      return { host: 'smtp-mail.outlook.com', port: 587, secure: false };
-    }
-
-    if (domain.includes('yahoo')) {
-      return { host: 'smtp.mail.yahoo.com', port: 587, secure: false };
-    }
-
-    return { host: 'smtp.gmail.com', port: 587, secure: false };
-  }
+  // --- MÉTODOS DE AUTENTICACIÓN ---
 
   async register(createUserDto: CreateUserDto) {
     try {
@@ -131,71 +113,50 @@ export class AuthService {
   }
 
   /**
-   * RECUPERACIÓN DE CONTRASEÑA (Solución definitiva para ENETUNREACH)
+   * RECUPERACIÓN DE CONTRASEÑA (USANDO RESEND)
+   * Soluciona definitivamente los errores ETIMEDOUT y ENETUNREACH en Render.
    */
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 3600000); 
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hora de validez
 
     try {
+      // 1. Guardar token en base de datos
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-      const emailUser = this.configService.get('EMAIL_USER');
-      const domain = emailUser.split('@')[1]?.toLowerCase() || '';
-
-      // Configuración simplificada y forzada para IPv4
-      let transporterConfig: any;
-
-      if (domain.includes('gmail') || domain.includes('sudamericano.edu.ec')) {
-        transporterConfig = {
-          service: 'gmail',
-          auth: { 
-            user: emailUser, 
-            pass: this.configService.get('EMAIL_PASS') 
-          }
-        };
-      } else {
-        const smtp = this.getSmtpConfig();
-        transporterConfig = {
-          host: smtp.host,
-          port: smtp.port,
-          secure: smtp.secure,
-          family: 4, // Obligatorio para evitar ENETUNREACH en Render
-          auth: { 
-            user: emailUser, 
-            pass: this.configService.get('EMAIL_PASS') 
-          },
-          tls: { rejectUnauthorized: false }
-        };
+      // 2. Configurar cliente de Resend
+      const resendApiKey = this.configService.get('RESEND_API_KEY');
+      if (!resendApiKey) {
+        throw new InternalServerErrorException("Falta configurar RESEND_API_KEY en las variables de entorno.");
       }
-
-      const transporter = nodemailer.createTransport(transporterConfig);
+      const resend = new Resend(resendApiKey);
 
       const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
       const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
-      await transporter.sendMail({
-        from: `"Soporte RepoDigital" <${emailUser}>`,
+      // 3. Enviar correo usando la API (Puerto 443 - Seguro y sin bloqueos)
+      await resend.emails.send({
+        from: 'RepoDigital <onboarding@resend.dev>', // Remitente por defecto de Resend (funciona sin dominio propio)
         to: user.email,
         subject: 'Recuperación de Contraseña - RepoDigital',
         html: `
-          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
+          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 5px;">
             <h2 style="color: #0891b2;">Recuperación de Contraseña</h2>
             <p>Hola <strong>${user.name}</strong>,</p>
-            <p>Haz clic en el botón de abajo para restablecer tu contraseña:</p>
-            <a href="${resetUrl}" style="background: #0891b2; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block;">Restablecer Contraseña</a>
-            <p style="margin-top: 20px; font-size: 12px; color: #666;">Si no solicitaste esto, ignora este correo.</p>
+            <p>Has solicitado restablecer tu contraseña. Haz clic en el siguiente botón:</p>
+            <a href="${resetUrl}" style="background: #0891b2; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">Restablecer Contraseña</a>
+            <p style="margin-top: 20px; font-size: 12px; color: #666;">Si no solicitaste esto, ignora este mensaje.</p>
           </div>
         `
       });
 
       return { message: 'Correo enviado correctamente.' };
     } catch (error) {
-      console.error("Error crítico en Render:", error);
-      throw new InternalServerErrorException("Error de conexión con el servidor de correo.");
+      console.error("Error al enviar correo con Resend:", error);
+      throw new InternalServerErrorException("Error al enviar el correo de recuperación.");
     }
   }
 
