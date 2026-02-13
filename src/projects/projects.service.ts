@@ -149,43 +149,43 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       throw new ForbiddenException('No tienes permiso para editar este proyecto.');
     }
 
-    // --- MEJORA DE SINCRONIZACIÓN ---
+    // --- MEJORA DE SINCRONIZACIÓN MASIVA ---
     const dto = updateProjectDto as any;
-    // Capturamos skills o projectSkills (según mande el frontend)
     const skills = dto.skills || dto.projectSkills; 
     const { startDate, endDate, ...rest } = dto;
 
-    // LIMPIEZA DE SEGURIDAD: Eliminamos objetos relacionales que Prisma no acepta en un update directo
+    // Limpieza de objetos relacionales para evitar conflictos con Prisma
     delete rest.projectSkills;
     delete rest.career;
     delete rest.user;
     delete rest.userProjects;
-    delete rest.skills; // Ya lo tenemos en la variable 'skills'
+    delete rest.skills;
 
     return this.prismaService.$transaction(async (tx) => {
       
-      // Si 'skills' está definido (aunque sea un array vacío []), sincronizamos
       if (skills !== undefined && Array.isArray(skills)) {
-        // 1. Limpiamos la tabla intermedia por completo para este proyecto
+        // 1. Borramos todas las habilidades actuales del proyecto
         await tx.projectSkills.deleteMany({
           where: { projectId: id }
         });
 
-        // 2. Insertamos las nuevas (solo si el array trae IDs)
+        // 2. Insertamos las nuevas habilidades de forma segura
         if (skills.length > 0) {
-          // Nos aseguramos de extraer solo strings (IDs) por si vienen objetos
-          const cleanSkillIds = skills.map((s: any) => typeof s === 'object' ? s.id || s.skillId : s);
+          // Extraemos IDs y eliminamos duplicados con Set para evitar errores de clave única
+          const rawIds = skills.map((s: any) => typeof s === 'object' ? s.id || s.skillId : s);
+          const uniqueSkillIds = [...new Set(rawIds)] as string[];
 
           await tx.projectSkills.createMany({
-            data: cleanSkillIds.map((skillId: string) => ({
+            data: uniqueSkillIds.map((skillId: string) => ({
               projectId: id,
               skillId: skillId,
             })),
+            skipDuplicates: true, // Evita errores si algo se repite accidentalmente
           });
         }
       }
 
-      // 3. Actualizamos los datos del proyecto
+      // 3. Actualizamos los datos generales del proyecto
       return tx.project.update({
         where: { id },
         data: {
