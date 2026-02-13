@@ -14,7 +14,7 @@ import { LoginDto } from "./dto/loginDto";
 import { RefreshDto } from "./dto/refreshDto";
 import { JwtPayload } from "./interfaces/jwt-payload.interface";
 import * as crypto from 'crypto'; 
-import { google } from 'googleapis'; // <--- USAMOS LA LIBRERÍA DE GOOGLE, NO NODEMAILER
+import { google } from 'googleapis'; 
 
 @Injectable()
 export class AuthService {
@@ -25,7 +25,6 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {
-    // Inicializamos el cliente OAuth2
     this.oauth2Client = new google.auth.OAuth2(
       this.configService.get('MAIL_CLIENT_ID'),
       this.configService.get('MAIL_CLIENT_SECRET'),
@@ -37,7 +36,6 @@ export class AuthService {
     });
   }
 
-  // --- VALIDACIONES ---
   private isDomainAllowed(email: string): boolean {
     const domain = email.split('@')[1].toLowerCase();
     const allowedDomains = ['sudamericano.edu.ec', 'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com'];
@@ -45,7 +43,6 @@ export class AuthService {
     return allowedDomains.includes(domain) || allowedExtensions.some(ext => domain.endsWith(ext));
   }
 
-  // --- REGISTRO Y LOGIN ---
   async register(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId: _, ...userDto } = createUserDto;
@@ -107,7 +104,6 @@ export class AuthService {
     } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  // --- AUXILIAR: Construir Email RAW ---
   private makeBody(to: string, from: string, subject: string, message: string) {
     const str = [
       `To: ${to}`,
@@ -126,7 +122,6 @@ export class AuthService {
       .replace(/=+$/, '');
   }
 
-  // --- ENVÍO DE CORREO VÍA API (NO SMTP) ---
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
@@ -140,10 +135,8 @@ export class AuthService {
       const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
       const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
-      // 1. Refrescar Token
       const accessToken = await this.oauth2Client.getAccessToken();
       
-      // 2. Cliente Gmail API
       const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
 
       const emailBody = `

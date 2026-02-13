@@ -21,7 +21,6 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     super(prismaService, { name: 'user' });
   }
 
-  // --- CONFIGURACIÓN DE LISTA BLANCA DE DOMINIOS ---
   private isDomainAllowed(email: string): boolean {
     if (!email.includes('@')) return false;
     const domain = email.split('@')[1].toLowerCase();
@@ -41,7 +40,6 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     return allowedDomains.includes(domain) || allowedExtensions.some(ext => domain.endsWith(ext));
   }
 
-  // --- VALIDADOR DE CORREO ---
   private async validateEmailDeep(email: string) {
     const isProduction = process.env.NODE_ENV === 'production';
     
@@ -60,9 +58,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     }
   }
 
-  /**
-   * 1. Registro Público / General (Estudiantes - Rol USER)
-   */
+  
   async create(createUserDto: CreateUserDto) {
     const { password, email, roleId: _, ...rest } = createUserDto;
 
@@ -88,8 +84,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
         include: { role: true, career: true }
       });
       
-      // SOLUCIÓN AL ERROR DE TYPESCRIPT:
-      // Quitamos el password pero forzamos el tipo 'UserModel' para cumplir con BaseService
+
       const { password: __, ...userWithoutPassword } = user;
       return userWithoutPassword as unknown as UserModel;
 
@@ -98,9 +93,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     }
   }
 
-  /**
-   * 2. Registro de Docente (Solo Admin - Rol TEACHER)
-   */
+  
   async createTeacher(createUserDto: CreateUserDto) {
     const { password, email, name, careerId } = createUserDto as any; 
 
@@ -126,7 +119,6 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
         include: { role: true, career: true }
       });
       
-      // SOLUCIÓN AL ERROR DE TYPESCRIPT:
       const { password: __, ...userWithoutPassword } = user;
       return userWithoutPassword as unknown as UserModel;
 
@@ -135,7 +127,6 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     }
   }
 
-  // --- MÉTODOS ESTÁNDAR ---
 
   async findAll(paginationDto?: PaginationDto) {
     const { limit = 10, page = 1, order = 'desc' } = paginationDto || {};
@@ -210,7 +201,6 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     } catch (error) { this.handleDBErrors(error); }
   }
 
-  // --- MANEJO DE ERRORES ---
   private handleDBErrors(error: any): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') throw new ConflictException('El correo electrónico ya se encuentra registrado');
