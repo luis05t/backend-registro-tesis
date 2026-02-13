@@ -48,8 +48,13 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       where: whereCondition, 
       include: {
         user: true, 
-        projectSkills: true, 
-        career: true, 
+        career: true,
+        // CORRECCIÓN: Incluimos la habilidad real para evitar problemas de visualización
+        projectSkills: {
+          include: {
+            skill: true
+          }
+        }, 
       },
       orderBy: { createdAt: order }
     });
@@ -77,8 +82,13 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       where: { id },
       include: {
         user: true,
-        projectSkills: true,
         career: true,
+        // CORRECCIÓN: Incluimos la habilidad real
+        projectSkills: {
+          include: {
+            skill: true
+          }
+        },
       },
     });
 
@@ -149,20 +159,20 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       throw new ForbiddenException('No tienes permiso para editar este proyecto.');
     }
 
-    // --- SECCIÓN AGREGADA: SINCRONIZACIÓN DE HABILIDADES ---
-    // Extraemos 'skills' (array de IDs) del DTO
+    // EXTRAEMOS 'skills' (array de IDs) y fechas del DTO
     const { startDate, endDate, skills, ...rest } = updateProjectDto as any;
 
+    // Usamos una TRANSACCIÓN para asegurar que los cambios en habilidades sean atómicos
     return this.prismaService.$transaction(async (tx) => {
       
-      // Si el usuario envió el campo 'skills' (aunque sea un array vacío [])
+      // Si el usuario envió el campo 'skills' (incluso si es un array vacío [])
       if (skills !== undefined && Array.isArray(skills)) {
-        // 1. Borramos todas las habilidades que tiene actualmente el proyecto
+        // 1. Borramos todas las habilidades que tiene actualmente el proyecto para evitar errores de duplicados (400)
         await tx.projectSkills.deleteMany({
           where: { projectId: id }
         });
 
-        // 2. Si hay nuevos IDs, los insertamos
+        // 2. Si hay nuevos IDs en el array, los insertamos todos de nuevo
         if (skills.length > 0) {
           await tx.projectSkills.createMany({
             data: skills.map((skillId: string) => ({
@@ -173,26 +183,31 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
         }
       }
 
-      // 3. Actualizamos los datos generales del proyecto (Título, fechas, etc.)
+      // 3. Actualizamos los datos generales del proyecto
       return tx.project.update({
         where: { id },
         data: {
           ...rest,
+          // Solo actualizamos la fecha si viene en el DTO
           ...(startDate && { startDate: new Date(startDate) }),
           ...(endDate && { endDate: new Date(endDate) }),
         },
         include: {
           user: true,
-          projectSkills: true,
           career: true,
+          projectSkills: {
+            include: {
+              skill: true
+            }
+          },
         }
       });
     });
-    // --- FIN DE SECCIÓN AGREGADA ---
   }
 
   async remove(id: string): Promise<ProjectModel> {
     try {
+      // Limpieza manual de relaciones antes de borrar el proyecto
       await this.prismaService.projectSkills.deleteMany({ where: { projectId: id } });
       await this.prismaService.userProject.deleteMany({ where: { projectId: id } });
       return super.remove(id);
