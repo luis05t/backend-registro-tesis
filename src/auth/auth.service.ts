@@ -26,113 +26,57 @@ export class AuthService {
 
   // --- VALIDACIONES ---
   private isDomainAllowed(email: string): boolean {
-    const domain = email.split('@')[1]?.toLowerCase();
-    if (!domain) return false;
-    
-    const allowedPatterns = [
-      'sudamericano.edu.ec',
-      /^(gmail|outlook|hotmail|yahoo|icloud)\.com$/,
-      /\.(edu|gob|org|com|net)\.ec$/,
-      /\.(com|edu)$/
-    ];
-    
-    return allowedPatterns.some(pattern => 
-      typeof pattern === 'string' ? pattern === domain : pattern.test(domain)
-    );
+    const domain = email.split('@')[1].toLowerCase();
+    const allowedDomains = ['sudamericano.edu.ec', 'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com'];
+    const allowedExtensions = ['.edu.ec', '.gob.ec', '.org.ec', '.com.ec', '.net.ec', '.ec', '.com', '.edu'];
+    return allowedDomains.includes(domain) || allowedExtensions.some(ext => domain.endsWith(ext));
   }
 
   // --- REGISTRO Y LOGIN ---
   async register(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId: _, ...userDto } = createUserDto;
-      if (!this.isDomainAllowed(email)) {
-        throw new BadRequestException('Dominio de correo no permitido.');
-      }
+      if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio de correo no permitido.');
 
+      // Validación regex simple
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        throw new BadRequestException('Correo inválido.');
-      }
+      if (!emailRegex.test(email)) throw new BadRequestException('Correo inválido.');
 
-      const role = await this.prisma.role.findFirst({ 
-        where: { name: 'USER' } 
-      });
-      
-      if (!role) {
-        throw new InternalServerErrorException("Error: El rol 'USER' no existe.");
-      }
+      const role = await this.prisma.role.findFirst({ where: { name: 'USER' } });
+      if (!role) throw new InternalServerErrorException("Error: El rol 'USER' no existe.");
 
-      // ✅ Cambio: bcrypt asíncrono
-      const hashedPassword = await bcrypt.hash(password, 10);
-      
+      const hashedPassword = bcrypt.hashSync(password, 10);
       const user = await this.prisma.user.create({
-        data: { 
-          ...userDto, 
-          email: email.toLowerCase(), 
-          password: hashedPassword, 
-          roleId: role.id 
-        },
+        data: { ...userDto, email: email.toLowerCase(), password: hashedPassword, roleId: role.id },
       });
-      
-      return { 
-        user, 
-        token: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }) 
-      };
-    } catch (error) { 
-      this.handleDBErrors(error); 
-    }
+      return { user, token: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }) };
+    } catch (error) { this.handleDBErrors(error); }
   }
 
   async registerAdmin(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId, ...userDto } = createUserDto;
-      if (!roleId) {
-        throw new BadRequestException("El roleId es obligatorio.");
-      }
+      if (!roleId) throw new BadRequestException("El roleId es obligatorio.");
 
-      // ✅ Cambio: bcrypt asíncrono
-      const hashedPassword = await bcrypt.hash(password, 10);
-      
+      const hashedPassword = bcrypt.hashSync(password, 10);
       const user = await this.prisma.user.create({
-        data: { 
-          ...userDto, 
-          email: email.toLowerCase(), 
-          password: hashedPassword, 
-          roleId 
-        },
+        data: { ...userDto, email: email.toLowerCase(), password: hashedPassword, roleId },
         include: { role: true }
       });
 
       const { password: _, ...result } = user;
       return result;
-    } catch (error) { 
-      this.handleDBErrors(error); 
-    }
+    } catch (error) { this.handleDBErrors(error); }
   }
 
   async login(loginDto: LoginDto) {
     const { password, email } = loginDto;
-    
-    const user = await this.prisma.user.findUnique({ 
-      where: { email: email.toLowerCase() }, 
-      include: { role: true } 
-    });
-    
-    if (!user) {
-      throw new UnauthorizedException("correo no registrado");
-    }
-    
-    // ✅ Cambio: bcrypt asíncrono
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    
-    if (!isPasswordValid) {
-      throw new UnauthorizedException("contraseña incorrecta");
-    }
-    
+    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() }, include: { role: true } });
+    if (!user) throw new UnauthorizedException("correo no registrado");
+    const isPasswordValid = bcrypt.compareSync(password, user.password);
+    if (!isPasswordValid) throw new UnauthorizedException("contraseña incorrecta");
     return {
-      userId: user.id, 
-      userRole: user.role.name, 
-      userName: user.name,
+      userId: user.id, userRole: user.role.name, userName: user.name,
       accessToken: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
       refreshToken: this.getJwtToken({ id: user.id }, { expiresIn: "7d" }),
     };
@@ -140,60 +84,38 @@ export class AuthService {
 
   async refreshToken(refreshDto: RefreshDto) {
     try {
-      const payload = this.jwtService.verify(
-        refreshDto.refreshToken, 
-        { secret: this.configService.get<string>("JWT_SECRET") }
-      );
-      
-      const user = await this.prisma.user.findUnique({ 
-        where: { id: payload.id }, 
-        include: { role: true } 
-      });
-      
-      if (!user) {
-        throw new UnauthorizedException("Token inválido");
-      }
-      
+      const payload = this.jwtService.verify(refreshDto.refreshToken, { secret: this.configService.get<string>("JWT_SECRET") });
+      const user = await this.prisma.user.findUnique({ where: { id: payload.id }, include: { role: true } });
+      if (!user) throw new UnauthorizedException("Token inválido");
       return {
-        userId: user.id, 
-        userRole: user.role.name,
+        userId: user.id, userRole: user.role.name,
         accessToken: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
         refreshToken: this.getJwtToken({ id: user.id }, { expiresIn: "7d" }),
       };
-    } catch (error) { 
-      throw new UnauthorizedException("Token expirado"); 
-    }
+    } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  // --- ENVÍO DE CORREO (CORREGIDO PARA RENDER) ---
+  // --- ENVÍO DE CORREO (SOLUCIÓN IPv4) ---
   async forgotPassword(email: string) {
-    const user = await this.prisma.user.findUnique({ 
-      where: { email: email.toLowerCase() } 
-    });
-    
-    if (!user) {
-      throw new NotFoundException('Correo no encontrado');
-    }
+    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (!user) throw new NotFoundException('Correo no encontrado');
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hora
+    const resetTokenExpiry = new Date(Date.now() + 3600000); 
 
     try {
-      await this.prisma.user.update({ 
-        where: { id: user.id }, 
-        data: { resetToken, resetTokenExpiry } 
-      });
+      await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-      // ✅ Ofuscar email en logs
-      const maskedEmail = user.email.replace(/(.{2}).*(@.*)/, '$1***$2');
-      console.log("Intentando enviar correo a:", maskedEmail);
+      console.log("Intentando enviar correo a:", user.email);
 
-      // ✅ CONFIGURACIÓN CORREGIDA CON IPv4
+      // CONFIGURACIÓN OBLIGATORIA PARA RENDER
       const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 465,
+        host: 'smtp.gmail.com',   
+        port: 465,                
         secure: true,
-        family: 4, // ⬅️ CRÍTICO: Fuerza IPv4 para evitar ENETUNREACH
+        // ESTA LÍNEA ES LA CLAVE: family: 4 obliga a usar IPv4
+        // (En la versión anterior estaba comentada, ahora está activa)
+        family: 4, 
         auth: {
           type: 'OAuth2',
           user: this.configService.get('MAIL_USER'),
@@ -201,19 +123,7 @@ export class AuthService {
           clientSecret: this.configService.get('MAIL_CLIENT_SECRET'),
           refreshToken: this.configService.get('MAIL_REFRESH_TOKEN'),
         },
-        // ✅ SIN tls.rejectUnauthorized: false (Gmail tiene certificados válidos)
       } as any);
-
-      // Verificación previa del servidor SMTP
-      try {
-        await transporter.verify();
-        console.log("✅ Servidor SMTP conectado correctamente (IPv4)");
-      } catch (verifyError) {
-        console.error("❌ Error verificando conexión SMTP:", verifyError.message);
-        throw new InternalServerErrorException(
-          "No se pudo conectar con el servidor de correo. Verifica la configuración OAuth2."
-        );
-      }
 
       const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
       const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
@@ -223,75 +133,40 @@ export class AuthService {
         to: user.email, 
         subject: 'Recuperación de Contraseña',
         html: `
-          <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px; max-width: 600px; margin: 0 auto;">
+          <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
             <h2 style="color: #0056b3;">Recuperación de Contraseña</h2>
             <p>Hola <strong>${user.name}</strong>,</p>
             <p>Hemos recibido una solicitud para restablecer tu contraseña.</p>
-            <p>Haz clic en el siguiente botón para continuar:</p>
-            <div style="text-align: center; margin: 20px 0;">
-              <a href="${resetUrl}" 
-                 style="background-color: #0056b3; 
-                        color: white; 
-                        padding: 12px 24px; 
-                        text-decoration: none; 
-                        border-radius: 5px; 
-                        display: inline-block;">
-                Restablecer Contraseña
-              </a>
-            </div>
-            <p><small style="color: #666;">Este enlace expira en 1 hora.</small></p>
-            <p><small style="color: #999;">Si no solicitaste este cambio, ignora este correo.</small></p>
+            <a href="${resetUrl}" style="background-color: #0056b3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0;">Restablecer Contraseña</a>
           </div>
         `
       });
 
-      console.log("✅ Correo enviado exitosamente");
+      console.log("Correo enviado con éxito.");
       return { message: 'Correo enviado correctamente.' };
-      
     } catch (error) {
-      console.error("❌ Error FATAL enviando correo:", error);
-      throw new InternalServerErrorException(
-        "Error al enviar el correo. Verifica los logs del servidor."
-      );
+      console.error("Error FATAL enviando correo:", error);
+      throw new InternalServerErrorException("Error al enviar el correo. Revisa los logs del servidor.");
     }
   }
 
   async resetPassword(token: string, newPassword: string) {
-    const user = await this.prisma.user.findFirst({ 
-      where: { 
-        resetToken: token, 
-        resetTokenExpiry: { gt: new Date() } 
-      } 
-    });
-    
-    if (!user) {
-      throw new BadRequestException('El enlace es inválido o ha expirado.');
-    }
+    const user = await this.prisma.user.findFirst({ where: { resetToken: token, resetTokenExpiry: { gt: new Date() } } });
+    if (!user) throw new BadRequestException('El enlace es inválido o ha expirado.');
 
-    // ✅ Cambio: bcrypt asíncrono
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    
+    const hashedPassword = bcrypt.hashSync(newPassword, 10);
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { 
-        password: hashedPassword, 
-        resetToken: null, 
-        resetTokenExpiry: null 
-      }
+      data: { password: hashedPassword, resetToken: null, resetTokenExpiry: null }
     });
 
     return { message: 'Contraseña actualizada correctamente' };
   }
 
-  private getJwtToken(payload: JwtPayload, options?: JwtSignOptions) { 
-    return this.jwtService.sign(payload, options); 
-  }
+  private getJwtToken(payload: JwtPayload, options?: JwtSignOptions) { return this.jwtService.sign(payload, options); }
 
   private handleDBErrors(error: any): never {
-    if (error.code === 'P2002') {
-      throw new BadRequestException('Correo ya registrado');
-    }
-    console.error('Error de base de datos:', error);
+    if (error.code === 'P2002') throw new BadRequestException('Correo ya registrado');
     throw new InternalServerErrorException("Error interno del servidor.");
   }
 }
