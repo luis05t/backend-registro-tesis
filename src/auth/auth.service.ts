@@ -10,12 +10,11 @@ import { JwtService, JwtSignOptions } from "@nestjs/jwt";
 import * as bcrypt from "bcrypt"; 
 import { CreateUserDto } from "src/users/dto/create-user.dto";
 import { PrismaService } from "src/prisma/prisma.service";
-import { LoginDto } from "src/auth/dto/loginDto"; 
-import { RefreshDto } from "src/auth/dto/refreshDto"; 
-import { JwtPayload } from "src/auth/interfaces"; 
+import { LoginDto } from "./dto/loginDto";
+import { RefreshDto } from "./dto/refreshDto";
+import { JwtPayload } from "./interfaces/jwt-payload.interface";
 import * as crypto from 'crypto'; 
 import * as nodemailer from 'nodemailer'; 
-import * as deepEmailValidator from 'deep-email-validator';
 
 @Injectable()
 export class AuthService {
@@ -95,7 +94,7 @@ export class AuthService {
     } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  // --- ENVÍO DE CORREO (SOLUCIÓN FINAL IPV4) ---
+  // --- ENVÍO DE CORREO (SOLUCIÓN DEFINITIVA) ---
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
@@ -106,12 +105,15 @@ export class AuthService {
     try {
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-      // CONFIGURACIÓN OBLIGATORIA PARA RENDER
+      console.log("Intentando enviar correo a:", user.email); // Log para depurar en Render
+
+      // ⚠️ CONFIGURACIÓN BLINDADA PARA RENDER ⚠️
       const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',   // Host explícito
-        port: 465,                // Puerto seguro
-        secure: true,             // SSL activado
-        family: 4,                // <--- ¡ESTA LÍNEA ES LA QUE ARREGLA TU ERROR 2607...! (Fuerza IPv4)
+        host: 'smtp.gmail.com',   
+        port: 465,                
+        secure: true,
+        // family: 4, // <-- A veces Node ignora esto si hay 'service: gmail'
+        // NO USAMOS 'service: gmail' porque fuerza configuraciones automáticas que fallan.
         auth: {
           type: 'OAuth2',
           user: this.configService.get('MAIL_USER'),
@@ -119,7 +121,20 @@ export class AuthService {
           clientSecret: this.configService.get('MAIL_CLIENT_SECRET'),
           refreshToken: this.configService.get('MAIL_REFRESH_TOKEN'),
         },
+        tls: {
+            rejectUnauthorized: false // Ayuda a evitar errores de certificados en contenedores
+        }
       } as any);
+
+      // Verificación previa para asegurar que el transporter funciona
+      try {
+        await transporter.verify();
+        console.log("Servidor SMTP listo y conectado (IPv4).");
+      } catch (verifyError) {
+        console.error("Error al verificar conexión SMTP:", verifyError);
+        // Si falla la verificación, no intentamos enviar para obtener un error más claro
+        throw new InternalServerErrorException("No se pudo conectar con Gmail (Error SMTP).");
+      }
 
       const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
       const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
@@ -133,17 +148,16 @@ export class AuthService {
             <h2 style="color: #0056b3;">Recuperación de Contraseña</h2>
             <p>Hola <strong>${user.name}</strong>,</p>
             <p>Hemos recibido una solicitud para restablecer tu contraseña.</p>
-            <p>Haz clic en el siguiente botón para continuar:</p>
             <a href="${resetUrl}" style="background-color: #0056b3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0;">Restablecer Contraseña</a>
-            <p style="font-size: 12px; color: #666; margin-top: 20px;">Este enlace expirará en 1 hora.</p>
           </div>
         `
       });
 
+      console.log("Correo enviado con éxito.");
       return { message: 'Correo enviado correctamente.' };
     } catch (error) {
-      console.error("Error enviando correo (OAuth2):", error);
-      throw new InternalServerErrorException("Error al enviar el correo.");
+      console.error("Error FATAL enviando correo:", error);
+      throw new InternalServerErrorException("Error al enviar el correo. Revisa los logs del servidor.");
     }
   }
 

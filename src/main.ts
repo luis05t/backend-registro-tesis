@@ -1,7 +1,6 @@
 import dns from 'node:dns'; 
 // Forzar a Node.js a usar IPv4 primero para evitar errores de red en Render
-dns.setDefaultResultOrder('ipv4first'); 
-
+dns.setDefaultResultOrder('ipv4first'); // <--- ESTO ES VITAL
 import { ValidationPipe, Logger } from "@nestjs/common"; 
 import { NestFactory } from "@nestjs/core"; 
 import { AppModule } from "./app.module"; 
