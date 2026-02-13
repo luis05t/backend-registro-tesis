@@ -14,7 +14,7 @@ import { LoginDto } from "./dto/loginDto";
 import { RefreshDto } from "./dto/refreshDto";
 import { JwtPayload } from "./interfaces/jwt-payload.interface";
 import * as crypto from 'crypto'; 
-import { google } from 'googleapis'; // <--- USAMOS LA LIBRERÍA OFICIAL DE GOOGLE
+import { google } from 'googleapis'; // <--- USAMOS LA LIBRERÍA DE GOOGLE, NO NODEMAILER
 
 @Injectable()
 export class AuthService {
@@ -25,11 +25,11 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {
-    // Inicializamos el cliente OAuth2 una sola vez
+    // Inicializamos el cliente OAuth2
     this.oauth2Client = new google.auth.OAuth2(
       this.configService.get('MAIL_CLIENT_ID'),
       this.configService.get('MAIL_CLIENT_SECRET'),
-      'https://developers.google.com/oauthplayground' // O tu URL de redirección configurada
+      'https://developers.google.com/oauthplayground'
     );
 
     this.oauth2Client.setCredentials({
@@ -107,7 +107,7 @@ export class AuthService {
     } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  // --- MÉTODO AUXILIAR PARA CODIFICAR EL EMAIL ---
+  // --- AUXILIAR: Construir Email RAW ---
   private makeBody(to: string, from: string, subject: string, message: string) {
     const str = [
       `To: ${to}`,
@@ -126,7 +126,7 @@ export class AuthService {
       .replace(/=+$/, '');
   }
 
-  // --- ENVÍO DE CORREO VÍA API GMAIL (NO SMTP - IMPOSIBLE DE BLOQUEAR) ---
+  // --- ENVÍO DE CORREO VÍA API (NO SMTP) ---
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
@@ -140,10 +140,10 @@ export class AuthService {
       const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
       const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
-      // 1. Obtenemos un Access Token fresco automáticamente
+      // 1. Refrescar Token
       const accessToken = await this.oauth2Client.getAccessToken();
       
-      // 2. Usamos la API de Gmail
+      // 2. Cliente Gmail API
       const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
 
       const emailBody = `
@@ -166,9 +166,7 @@ export class AuthService {
       
       await gmail.users.messages.send({
         userId: 'me',
-        requestBody: {
-          raw: raw,
-        },
+        requestBody: { raw: raw },
       });
 
       console.log("¡Correo enviado con éxito vía API!");
