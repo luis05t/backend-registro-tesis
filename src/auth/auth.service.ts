@@ -15,6 +15,8 @@ import { RefreshDto } from "./dto/refreshDto";
 import { JwtPayload } from "./interfaces/jwt-payload.interface";
 import * as crypto from 'crypto'; 
 import * as nodemailer from 'nodemailer'; 
+import * as dns from 'dns'; // Importamos DNS para resolver la IP manualmente
+import { promisify } from 'util';
 
 @Injectable()
 export class AuthService {
@@ -38,7 +40,6 @@ export class AuthService {
       const { password, email, roleId: _, ...userDto } = createUserDto;
       if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio de correo no permitido.');
 
-      // Validación regex simple
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) throw new BadRequestException('Correo inválido.');
 
@@ -95,7 +96,7 @@ export class AuthService {
     } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  // --- ENVÍO DE CORREO (SOLUCIÓN IPv4) ---
+  // --- ENVÍO DE CORREO (SOLUCIÓN FINAL: RESOLUCIÓN MANUAL DE DNS) ---
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
@@ -106,16 +107,26 @@ export class AuthService {
     try {
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-      console.log("Intentando enviar correo a:", user.email);
+      console.log("Resolviendo DNS IPv4 para smtp.gmail.com...");
+      
+      // 1. Resolvemos la IP manualmente para asegurar que sea IPv4
+      const resolve4 = promisify(dns.resolve4);
+      let gmailIp = 'smtp.gmail.com'; // Fallback por defecto
+      try {
+        const addresses = await resolve4('smtp.gmail.com');
+        if (addresses && addresses.length > 0) {
+          gmailIp = addresses[0];
+          console.log(`DNS Resuelto manualmente a: ${gmailIp}`);
+        }
+      } catch (dnsError) {
+        console.error("Fallo resolución manual DNS, usando default:", dnsError);
+      }
 
-      // CONFIGURACIÓN OBLIGATORIA PARA RENDER
+      // 2. Configuramos el transporter usando la IP directamente
       const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',   
-        port: 465,                
+        host: gmailIp,            // <--- Usamos la IP (ej: 142.250.1.108) en vez del nombre
+        port: 465,
         secure: true,
-        // ESTA LÍNEA ES LA CLAVE: family: 4 obliga a usar IPv4
-        // (En la versión anterior estaba comentada, ahora está activa)
-        family: 4, 
         auth: {
           type: 'OAuth2',
           user: this.configService.get('MAIL_USER'),
@@ -123,6 +134,10 @@ export class AuthService {
           clientSecret: this.configService.get('MAIL_CLIENT_SECRET'),
           refreshToken: this.configService.get('MAIL_REFRESH_TOKEN'),
         },
+        tls: {
+          servername: 'smtp.gmail.com', // <--- IMPORTANTE: Necesario para que el certificado SSL no falle al usar IP
+          rejectUnauthorized: false
+        }
       } as any);
 
       const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
