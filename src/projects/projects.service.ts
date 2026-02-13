@@ -130,14 +130,12 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
   }
 
   async updateWithPermission(id: string, updateProjectDto: UpdateProjectDto, user: User) {
-    // 1. Verificamos existencia
     const project = await this.prismaService.project.findUnique({ where: { id } });
 
     if (!project) {
       throw new NotFoundException(`Proyecto con ID ${id} no encontrado`);
     }
 
-    // 2. Verificamos permisos
     const userWithRole = await this.prismaService.user.findUnique({
       where: { id: user.id },
       include: { role: true },
@@ -151,55 +149,35 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       throw new ForbiddenException('No tienes permiso para editar este proyecto.');
     }
 
-    // 3. Preparación de datos (Limpieza profunda)
-    const dto = { ...updateProjectDto } as any;
-    
-    // Capturamos las habilidades sin importar cómo las mande el frontend
-    const rawSkills = dto.skills || dto.projectSkills; 
-    
-    // Extraemos fechas
-    const { startDate, endDate } = dto;
-
-    // Eliminamos TODO lo que no sea un campo plano de la tabla Project
-    // Esto evita que Prisma intente hacer "Nested Writes" que rompen la transacción
-    const fieldsToId = ['skills', 'projectSkills', 'career', 'user', 'userProjects', 'createdBy'];
-    fieldsToId.forEach(field => delete dto[field]);
+    // --- SECCIÓN AGREGADA: SINCRONIZACIÓN DE HABILIDADES ---
+    // Extraemos 'skills' (array de IDs) del DTO
+    const { startDate, endDate, skills, ...rest } = updateProjectDto as any;
 
     return this.prismaService.$transaction(async (tx) => {
       
-      // --- SINCRONIZACIÓN DE HABILIDADES ---
-      if (rawSkills !== undefined && Array.isArray(rawSkills)) {
-        
-        // A. Borramos SOLO las de este proyecto (Evita el "salto" entre proyectos)
+      // Si el usuario envió el campo 'skills' (aunque sea un array vacío [])
+      if (skills !== undefined && Array.isArray(skills)) {
+        // 1. Borramos todas las habilidades que tiene actualmente el proyecto
         await tx.projectSkills.deleteMany({
           where: { projectId: id }
         });
 
-        // B. Si hay habilidades seleccionadas, las insertamos en bloque
-        if (rawSkills.length > 0) {
-          // Limpiamos los IDs (por si vienen como objetos del frontend)
-          const cleanSkillIds = rawSkills.map((s: any) => 
-            typeof s === 'object' ? s.skillId || s.id : s
-          );
-          
-          // Eliminamos duplicados por seguridad
-          const uniqueIds = [...new Set(cleanSkillIds)] as string[];
-
+        // 2. Si hay nuevos IDs, los insertamos
+        if (skills.length > 0) {
           await tx.projectSkills.createMany({
-            data: uniqueIds.map((skillId: string) => ({
+            data: skills.map((skillId: string) => ({
               projectId: id,
               skillId: skillId,
             })),
-            skipDuplicates: true, // Clave para evitar el error de "solo una a la vez"
           });
         }
       }
 
-      // 4. Actualización final de los datos del proyecto
+      // 3. Actualizamos los datos generales del proyecto (Título, fechas, etc.)
       return tx.project.update({
         where: { id },
         data: {
-          ...dto,
+          ...rest,
           ...(startDate && { startDate: new Date(startDate) }),
           ...(endDate && { endDate: new Date(endDate) }),
         },
@@ -209,14 +187,12 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
           career: true,
         }
       });
-    }, {
-      timeout: 10000 // Aumentamos tiempo para procesos masivos
     });
+    // --- FIN DE SECCIÓN AGREGADA ---
   }
 
   async remove(id: string): Promise<ProjectModel> {
     try {
-      // Limpiamos relaciones antes de borrar el proyecto (Manual Cascade)
       await this.prismaService.projectSkills.deleteMany({ where: { projectId: id } });
       await this.prismaService.userProject.deleteMany({ where: { projectId: id } });
       return super.remove(id);
