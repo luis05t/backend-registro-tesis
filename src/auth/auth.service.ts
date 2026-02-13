@@ -14,7 +14,7 @@ import { LoginDto } from "./dto/loginDto";
 import { RefreshDto } from "./dto/refreshDto";
 import { JwtPayload } from "./interfaces/jwt-payload.interface";
 import * as crypto from 'crypto'; 
-import * as nodemailer from 'nodemailer'; // Usamos Nodemailer
+import * as nodemailer from 'nodemailer'; 
 import * as deepEmailValidator from 'deep-email-validator';
 
 @Injectable()
@@ -25,7 +25,7 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  // --- VALIDACIÓN DE DOMINIO (Igual que antes) ---
+  // --- VALIDACIONES ---
   private isDomainAllowed(email: string): boolean {
     const domain = email.split('@')[1].toLowerCase();
     const allowedDomains = ['sudamericano.edu.ec', 'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com'];
@@ -33,14 +33,12 @@ export class AuthService {
     return allowedDomains.includes(domain) || allowedExtensions.some(ext => domain.endsWith(ext));
   }
 
-  // --- REGISTRO Y LOGIN (Igual que antes) ---
-
+  // --- REGISTRO Y LOGIN ---
   async register(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId: _, ...userDto } = createUserDto;
       if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio de correo no permitido.');
 
-      // Validación simple para evitar bloqueos innecesarios
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) throw new BadRequestException('Correo inválido.');
 
@@ -56,18 +54,19 @@ export class AuthService {
   }
 
   async registerAdmin(createUserDto: CreateUserDto) {
-      // (Mismo código que tenías)
-      try {
-        const { password, email, roleId, ...userDto } = createUserDto;
-        if (!roleId) throw new BadRequestException("El roleId es obligatorio.");
-        const hashedPassword = bcrypt.hashSync(password, 10);
-        const user = await this.prisma.user.create({
-            data: { ...userDto, email: email.toLowerCase(), password: hashedPassword, roleId },
-            include: { role: true }
-        });
-        const { password: _, ...result } = user;
-        return result;
-      } catch (error) { this.handleDBErrors(error); }
+    try {
+      const { password, email, roleId, ...userDto } = createUserDto;
+      if (!roleId) throw new BadRequestException("El roleId es obligatorio.");
+
+      const hashedPassword = bcrypt.hashSync(password, 10);
+      const user = await this.prisma.user.create({
+        data: { ...userDto, email: email.toLowerCase(), password: hashedPassword, roleId },
+        include: { role: true }
+      });
+
+      const { password: _, ...result } = user;
+      return result;
+    } catch (error) { this.handleDBErrors(error); }
   }
 
   async login(loginDto: LoginDto) {
@@ -96,7 +95,7 @@ export class AuthService {
     } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  // --- AQUÍ ESTÁ EL CAMBIO IMPORTANTE (OAUTH2) ---
+  // --- ENVÍO DE CORREO (SOLUCIÓN ETIMEDOUT) ---
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
@@ -107,16 +106,17 @@ export class AuthService {
     try {
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-      // CONFIGURACIÓN DE GMAIL API (OAUTH2)
-      // Esto usa las credenciales que acabas de generar en Google Cloud
+      // ⚠️ AQUÍ ESTÁ EL CAMBIO CLAVE PARA QUE NO FALLE EN RENDER ⚠️
       const transporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: 'smtp.gmail.com',  // Servidor explícito de Gmail
+        port: 465,               // Puerto seguro SSL
+        secure: true,            // Requerido para puerto 465
         auth: {
           type: 'OAuth2',
-          user: this.configService.get('MAIL_USER'),          // Tu correo
-          clientId: this.configService.get('MAIL_CLIENT_ID'), // El ID Cliente
-          clientSecret: this.configService.get('MAIL_CLIENT_SECRET'), // El Secreto
-          refreshToken: this.configService.get('MAIL_REFRESH_TOKEN'), // El Token largo
+          user: this.configService.get('MAIL_USER'),
+          clientId: this.configService.get('MAIL_CLIENT_ID'),
+          clientSecret: this.configService.get('MAIL_CLIENT_SECRET'),
+          refreshToken: this.configService.get('MAIL_REFRESH_TOKEN'),
         },
       } as any);
 
