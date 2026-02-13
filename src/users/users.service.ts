@@ -21,79 +21,64 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     super(prismaService, { name: 'user' });
   }
 
-  // --- CONFIGURACIÓN DE LISTA BLANCA ACTUALIZADA ---
+  // --- CONFIGURACIÓN DE LISTA BLANCA DE DOMINIOS ---
   private isDomainAllowed(email: string): boolean {
+    if (!email.includes('@')) return false;
     const domain = email.split('@')[1].toLowerCase();
     
-    // 1. Dominios específicos de confianza
     const allowedDomains = [
       'sudamericano.edu.ec',
-      'gmail.com',
-      'outlook.com',
-      'hotmail.com',
-      'yahoo.com',
-      'yahoo.es',
-      'icloud.com',
-      'live.com',
-      'msn.com',
-      'me.com',
-      'zoho.com'
+      'gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 
+      'yahoo.es', 'icloud.com', 'live.com', 'msn.com', 'me.com', 'zoho.com'
     ];
 
-    // 2. Extensiones permitidas (ACTUALIZADO para coincidir con Auth y Frontend)
     const allowedExtensions = [
-      '.edu.ec', '.gob.ec', '.org.ec', // Institucionales Ecuador
-      '.ec',                           // Regional Ecuador
-      '.edu', '.gob', '.gov',          // Institucionales Globales
+      '.edu.ec', '.gob.ec', '.org.ec', 
+      '.ec',                           
+      '.edu', '.gob', '.gov',          
     ];
 
-    const isInList = allowedDomains.includes(domain);
-    const hasValidExtension = allowedExtensions.some(ext => domain.endsWith(ext));
+    return allowedDomains.includes(domain) || allowedExtensions.some(ext => domain.endsWith(ext));
+  }
 
-    return isInList || hasValidExtension;
+  // --- VALIDADOR DE CORREO ---
+  private async validateEmailDeep(email: string) {
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    const res = await deepEmailValidator.validate({
+      email: email,
+      validateRegex: true,
+      validateTypo: false,       
+      validateDisposable: true,
+      validateMx: isProduction,  
+      validateSMTP: false,       
+    });
+
+    if (!res.valid) {
+      const reason = res.reason || 'formato inválido';
+      throw new BadRequestException(`El correo electrónico no es válido. Razón: ${reason}`);
+    }
   }
 
   /**
-   * 1. Registro Público / General (Estudiantes)
+   * 1. Registro Público / General (Estudiantes - Rol USER)
    */
   async create(createUserDto: CreateUserDto) {
     const { password, email, roleId: _, ...rest } = createUserDto;
 
-    // --- FILTRO 1: LISTA BLANCA ---
     if (!this.isDomainAllowed(email)) {
-      throw new BadRequestException(
-        'Dominio de correo no permitido. Use .com, .ec, .edu.ec, etc.'
-      );
+      throw new BadRequestException('Dominio de correo no permitido.');
     }
 
-    const role = await this.prismaService.role.findFirst({
-      where: { name: 'USER' }
-    });
+    await this.validateEmailDeep(email);
 
-    if (!role) {
-      throw new InternalServerErrorException('El rol de lector (user) no ha sido inicializado.');
-    }
-
-    // --- FILTRO 2: VALIDACIÓN TÉCNICA (AJUSTE PARA RENDER) ---
-    const isProduction = process.env.NODE_ENV === 'production';
-    const res = await deepEmailValidator.validate({
-      email: email,
-      validateRegex: true,
-      validateTypo: false,         // Desactivado para evitar falsos positivos
-      validateDisposable: true,
-      validateMx: isProduction,    // Verifica MX solo en producción
-      validateSMTP: false,         // False para evitar timeouts en la nube
-    });
-
-    if (!res.valid) {
-      const reason = res.reason || 'inválido';
-      throw new BadRequestException(`El correo electrónico no es válido. Razón: ${reason}`);
-    }
+    const role = await this.prismaService.role.findFirst({ where: { name: 'USER' } });
+    if (!role) throw new InternalServerErrorException('Error: El rol USER no existe.');
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
     try {
-      return await this.prismaService.user.create({
+      const user = await this.prismaService.user.create({
         data: {
           ...rest,
           email: email.toLowerCase(),
@@ -102,51 +87,30 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
         },
         include: { role: true, career: true }
       });
+      
+      // SOLUCIÓN AL ERROR DE TYPESCRIPT:
+      // Quitamos el password pero forzamos el tipo 'UserModel' para cumplir con BaseService
+      const { password: __, ...userWithoutPassword } = user;
+      return userWithoutPassword as unknown as UserModel;
+
     } catch (error) {
       this.handleDBErrors(error);
     }
   }
 
   /**
-   * 2. Registro de Docente (Solo Admin)
+   * 2. Registro de Docente (Solo Admin - Rol TEACHER)
    */
   async createTeacher(createUserDto: CreateUserDto) {
     const { password, email, name, careerId } = createUserDto as any; 
 
-    // --- FILTRO 1: LISTA BLANCA ---
-    if (!this.isDomainAllowed(email)) {
-      throw new BadRequestException(
-        'Dominio de correo no permitido.'
-      );
-    }
+    if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio de correo no permitido.');
+    await this.validateEmailDeep(email);
 
-    // --- FILTRO 2: VALIDACIÓN TÉCNICA ---
-    const isProduction = process.env.NODE_ENV === 'production';
-    const res = await deepEmailValidator.validate({
-      email: email,
-      validateRegex: true,
-      validateTypo: false,
-      validateDisposable: true,
-      validateMx: isProduction,    
-      validateSMTP: false, 
-    });
+    if (!careerId) throw new BadRequestException('El ID de la carrera es obligatorio.');
 
-    if (!res.valid) {
-      const reason = res.reason || 'inválido';
-      throw new BadRequestException(`Correo inválido. Razón: ${reason}`);
-    }
-
-    const role = await this.prismaService.role.findFirst({
-      where: { name: 'TEACHER' } 
-    });
-    
-    if (!role) {
-      throw new InternalServerErrorException('El rol TEACHER no existe.');
-    }
-
-    if (!careerId) {
-       throw new BadRequestException('El ID de la carrera es obligatorio para registrar un docente.');
-    }
+    const role = await this.prismaService.role.findFirst({ where: { name: 'TEACHER' } });
+    if (!role) throw new InternalServerErrorException('Error: El rol TEACHER no existe.');
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -162,29 +126,47 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
         include: { role: true, career: true }
       });
       
-      const { password: _, ...userWithoutPassword } = user;
-      return userWithoutPassword;
+      // SOLUCIÓN AL ERROR DE TYPESCRIPT:
+      const { password: __, ...userWithoutPassword } = user;
+      return userWithoutPassword as unknown as UserModel;
 
     } catch (error) {
       this.handleDBErrors(error);
     }
   }
 
-  // ... (Resto de métodos sin cambios: findAll, findOne, update, etc.)
+  // --- MÉTODOS ESTÁNDAR ---
 
   async findAll(paginationDto?: PaginationDto) {
     const { limit = 10, page = 1, order = 'desc' } = paginationDto || {};
     const skip = (page - 1) * limit;
+    
     const total = await this.prismaService.user.count();
     const data = await this.prismaService.user.findMany({
-      skip, take: limit, include: { role: true, career: true }, orderBy: { createdAt: order }
+      skip, 
+      take: limit, 
+      include: { role: true, career: true }, 
+      orderBy: { createdAt: order }
     });
+
     const totalPages = Math.ceil(total / limit);
-    return { data, meta: { total, pagination: { page, limit, order: order as "asc" | "desc" }, totalPages, hasNextPage: page < totalPages, hasPreviousPage: page > 1 } };
+    return { 
+      data, 
+      meta: { 
+        total, 
+        pagination: { page, limit, order: order as "asc" | "desc" }, 
+        totalPages, 
+        hasNextPage: page < totalPages, 
+        hasPreviousPage: page > 1 
+      } 
+    };
   }
 
   async findOne(id: string) {
-    const user = await this.prismaService.user.findUnique({ where: { id }, include: { role: true, career: true } });
+    const user = await this.prismaService.user.findUnique({ 
+      where: { id }, 
+      include: { role: true, career: true } 
+    });
     if (!user) throw new NotFoundException(`Usuario no encontrado`);
     return user;
   }
@@ -192,34 +174,51 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
   async update(id: string, updateUserDto: UpdateUserDto) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException(`Usuario no encontrado`);
+
     const { password, email, roleId: _, ...rest } = updateUserDto;
-    let dataToUpdate: any = { ...rest, email: email?.toLowerCase() };
+    
+    let dataToUpdate: any = { ...rest };
+    if (email) dataToUpdate.email = email.toLowerCase();
     if (password) dataToUpdate.password = await bcrypt.hash(password, 10);
+
     try {
-      return await this.prismaService.user.update({ where: { id }, data: dataToUpdate, include: { role: true, career: true } });
+      return await this.prismaService.user.update({ 
+        where: { id }, 
+        data: dataToUpdate, 
+        include: { role: true, career: true } 
+      });
     } catch (error) { this.handleDBErrors(error); }
   }
 
   async updateImage(id: string, file: Express.Multer.File) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException(`Usuario no encontrado`);
-    return this.prismaService.user.update({ where: { id }, data: { image: `/uploads/${file.filename}` }, include: { role: true, career: true } });
+
+    return this.prismaService.user.update({ 
+      where: { id }, 
+      data: { image: `/uploads/${file.filename}` }, 
+      include: { role: true, career: true } 
+    });
   }
 
   async remove(id: string) {
     const user = await this.prismaService.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException(`Usuario no encontrado`);
-    try { return await this.prismaService.user.delete({ where: { id } }); } 
-    catch (error) { this.handleDBErrors(error); }
+    
+    try { 
+      return await this.prismaService.user.delete({ where: { id } }); 
+    } catch (error) { this.handleDBErrors(error); }
   }
 
+  // --- MANEJO DE ERRORES ---
   private handleDBErrors(error: any): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') throw new ConflictException('El correo electrónico ya se encuentra registrado');
-      if (error.code === 'P2003') throw new BadRequestException('La carrera seleccionada no existe.');
+      if (error.code === 'P2003') throw new BadRequestException('La carrera seleccionada no existe o datos relacionados inválidos.');
     }
-    if (error instanceof BadRequestException) throw error;
-    console.error(error);
+    if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
+    
+    console.error("Error Database:", error);
     throw new InternalServerErrorException('Error inesperado en el servidor.');
   }
 }
