@@ -130,12 +130,14 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
   }
 
   async updateWithPermission(id: string, updateProjectDto: UpdateProjectDto, user: User) {
+    // 1. Verificamos existencia
     const project = await this.prismaService.project.findUnique({ where: { id } });
 
     if (!project) {
       throw new NotFoundException(`Proyecto con ID ${id} no encontrado`);
     }
 
+    // 2. Verificamos permisos
     const userWithRole = await this.prismaService.user.findUnique({
       where: { id: user.id },
       include: { role: true },
@@ -149,47 +151,55 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       throw new ForbiddenException('No tienes permiso para editar este proyecto.');
     }
 
-    // --- MEJORA DE SINCRONIZACIÓN MASIVA ---
-    const dto = updateProjectDto as any;
-    const skills = dto.skills || dto.projectSkills; 
-    const { startDate, endDate, ...rest } = dto;
+    // 3. Preparación de datos (Limpieza profunda)
+    const dto = { ...updateProjectDto } as any;
+    
+    // Capturamos las habilidades sin importar cómo las mande el frontend
+    const rawSkills = dto.skills || dto.projectSkills; 
+    
+    // Extraemos fechas
+    const { startDate, endDate } = dto;
 
-    // Limpieza de objetos relacionales para evitar conflictos con Prisma
-    delete rest.projectSkills;
-    delete rest.career;
-    delete rest.user;
-    delete rest.userProjects;
-    delete rest.skills;
+    // Eliminamos TODO lo que no sea un campo plano de la tabla Project
+    // Esto evita que Prisma intente hacer "Nested Writes" que rompen la transacción
+    const fieldsToId = ['skills', 'projectSkills', 'career', 'user', 'userProjects', 'createdBy'];
+    fieldsToId.forEach(field => delete dto[field]);
 
     return this.prismaService.$transaction(async (tx) => {
       
-      if (skills !== undefined && Array.isArray(skills)) {
-        // 1. Borramos todas las habilidades actuales del proyecto
+      // --- SINCRONIZACIÓN DE HABILIDADES ---
+      if (rawSkills !== undefined && Array.isArray(rawSkills)) {
+        
+        // A. Borramos SOLO las de este proyecto (Evita el "salto" entre proyectos)
         await tx.projectSkills.deleteMany({
           where: { projectId: id }
         });
 
-        // 2. Insertamos las nuevas habilidades de forma segura
-        if (skills.length > 0) {
-          // Extraemos IDs y eliminamos duplicados con Set para evitar errores de clave única
-          const rawIds = skills.map((s: any) => typeof s === 'object' ? s.id || s.skillId : s);
-          const uniqueSkillIds = [...new Set(rawIds)] as string[];
+        // B. Si hay habilidades seleccionadas, las insertamos en bloque
+        if (rawSkills.length > 0) {
+          // Limpiamos los IDs (por si vienen como objetos del frontend)
+          const cleanSkillIds = rawSkills.map((s: any) => 
+            typeof s === 'object' ? s.skillId || s.id : s
+          );
+          
+          // Eliminamos duplicados por seguridad
+          const uniqueIds = [...new Set(cleanSkillIds)] as string[];
 
           await tx.projectSkills.createMany({
-            data: uniqueSkillIds.map((skillId: string) => ({
+            data: uniqueIds.map((skillId: string) => ({
               projectId: id,
               skillId: skillId,
             })),
-            skipDuplicates: true, // Evita errores si algo se repite accidentalmente
+            skipDuplicates: true, // Clave para evitar el error de "solo una a la vez"
           });
         }
       }
 
-      // 3. Actualizamos los datos generales del proyecto
+      // 4. Actualización final de los datos del proyecto
       return tx.project.update({
         where: { id },
         data: {
-          ...rest,
+          ...dto,
           ...(startDate && { startDate: new Date(startDate) }),
           ...(endDate && { endDate: new Date(endDate) }),
         },
@@ -199,11 +209,14 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
           career: true,
         }
       });
+    }, {
+      timeout: 10000 // Aumentamos tiempo para procesos masivos
     });
   }
 
   async remove(id: string): Promise<ProjectModel> {
     try {
+      // Limpiamos relaciones antes de borrar el proyecto (Manual Cascade)
       await this.prismaService.projectSkills.deleteMany({ where: { projectId: id } });
       await this.prismaService.userProject.deleteMany({ where: { projectId: id } });
       return super.remove(id);
