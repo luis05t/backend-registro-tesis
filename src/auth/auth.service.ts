@@ -25,76 +25,97 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  // --- 1. WHITELIST DE DOMINIOS ---
+  // --- 1. LISTA BLANCA DE DOMINIOS Y EXTENSIONES ---
   private isDomainAllowed(email: string): boolean {
     const domain = email.split('@')[1].toLowerCase();
+    
     const allowedDomains = [
       'sudamericano.edu.ec', 'gmail.com', 'outlook.com', 'hotmail.com',
-      'yahoo.com', 'yahoo.es', 'icloud.com', 'live.com', 'msn.com', 'me.com', 'zoho.com'
+      'yahoo.com', 'yahoo.es', 'icloud.com', 'live.com', 'msn.com', 
+      'me.com', 'zoho.com'
     ];
+
     const allowedExtensions = [
       '.edu.ec', '.gob.ec', '.org.ec', '.com.ec', '.net.ec',
       '.eu.ec', '.ec', '.com', '.edu', '.gob', '.gov', '.org'
     ];
-    return allowedDomains.includes(domain) || allowedExtensions.some(ext => domain.endsWith(ext));
+
+    const isInList = allowedDomains.includes(domain);
+    const hasValidExtension = allowedExtensions.some(ext => domain.endsWith(ext));
+
+    return isInList || hasValidExtension;
   }
 
-  // --- 2. DETECTOR DINÁMICO DE PROVEEDORES SMTP ---
+  // --- 2. DETECTOR DINÁMICO DE PROVEEDORES (GMAIL, OUTLOOK, YAHOO) ---
   private getSmtpConfig() {
     const emailUser = this.configService.get<string>('EMAIL_USER') || '';
     const domain = emailUser.split('@')[1]?.toLowerCase() || '';
+
+    // GMAIL / GOOGLE WORKSPACE / SUDAMERICANO
     if (domain.includes('gmail') || domain.includes('sudamericano.edu.ec')) {
       return { host: 'smtp.gmail.com', port: 465, secure: true };
     }
+
+    // MICROSOFT (Outlook, Hotmail, Live, MSN)
     if (domain.includes('outlook') || domain.includes('hotmail') || domain.includes('live') || domain.includes('msn')) {
       return { host: 'smtp-mail.outlook.com', port: 587, secure: false };
     }
+
+    // YAHOO
     if (domain.includes('yahoo')) {
       return { host: 'smtp.mail.yahoo.com', port: 465, secure: true };
     }
+
+    // CONFIGURACIÓN POR DEFECTO (Puerto seguro 465)
     return { host: 'smtp.gmail.com', port: 465, secure: true };
   }
 
   /**
-   * REGISTRO DE ESTUDIANTES
+   * REGISTRO DE USUARIOS (Con corrección de nulos)
    */
   async register(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId: _, ...userDto } = createUserDto;
-      if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio de correo no permitido.');
+
+      if (!this.isDomainAllowed(email)) {
+        throw new BadRequestException('Dominio de correo no permitido.');
+      }
 
       const res = await deepEmailValidator.validate({
         email, validateRegex: true, validateTypo: false, validateDisposable: true,
         validateMx: false, validateSMTP: false, 
       });
+
       if (!res.valid) throw new BadRequestException('Correo inválido.');
 
       const role = await this.prisma.role.findFirst({ where: { name: 'USER' } });
-      if (!role) throw new InternalServerErrorException("El rol 'USER' no existe.");
+      
+      // Validación para evitar el error 'possibly null'
+      if (!role) {
+        throw new InternalServerErrorException("Error: El rol 'USER' no existe.");
+      }
 
       const hashedPassword = bcrypt.hashSync(password, 10);
       const user = await this.prisma.user.create({
-        data: { ...userDto, email: email.toLowerCase(), password: hashedPassword, roleId: role.id },
+        data: { 
+          ...userDto, 
+          email: email.toLowerCase(), 
+          password: hashedPassword, 
+          roleId: role.id 
+        },
       });
+
       return { user, token: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }) };
     } catch (error) { this.handleDBErrors(error); }
   }
 
   /**
-   * REGISTRO ADMINISTRATIVO (Docentes - Solo Admin)
-   * REINTEGRADO PARA EL CONTROLLER
+   * REGISTRO ADMINISTRATIVO
    */
   async registerAdmin(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId, ...userDto } = createUserDto;
       if (!roleId) throw new BadRequestException("El roleId es obligatorio.");
-      if (!this.isDomainAllowed(email)) throw new BadRequestException('Dominio no permitido.');
-
-      const res = await deepEmailValidator.validate({
-        email, validateRegex: true, validateTypo: false, validateDisposable: true,
-        validateMx: false, validateSMTP: false,
-      });
-      if (!res.valid) throw new BadRequestException('Correo inválido.');
 
       const hashedPassword = bcrypt.hashSync(password, 10);
       const user = await this.prisma.user.create({
@@ -112,7 +133,11 @@ export class AuthService {
    */
   async login(loginDto: LoginDto) {
     const { password, email } = loginDto;
-    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() }, include: { role: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      include: { role: true },
+    });
+
     if (!user) throw new UnauthorizedException("correo no registrado");
 
     const isPasswordValid = bcrypt.compareSync(password, user.password);
@@ -127,7 +152,6 @@ export class AuthService {
 
   /**
    * REFRESH TOKEN
-   * REINTEGRADO PARA EL CONTROLLER
    */
   async refreshToken(refreshDto: RefreshDto) {
     try {
@@ -140,21 +164,18 @@ export class AuthService {
         include: { role: true },
       });
 
-      if (!user) throw new UnauthorizedException("Token de refresco inválido");
+      if (!user) throw new UnauthorizedException("Token inválido");
 
       return {
-        userId: user.id,
-        userRole: user.role.name,
+        userId: user.id, userRole: user.role.name,
         accessToken: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
         refreshToken: this.getJwtToken({ id: user.id }, { expiresIn: "7d" }),
       };
-    } catch (error) {
-      throw new UnauthorizedException("Token expirado o inválido");
-    }
+    } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
   /**
-   * RECUPERACIÓN DE CONTRASEÑA
+   * RECUPERACIÓN DE CONTRASEÑA (Soporte Universal Multi-Proveedor)
    */
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
@@ -165,10 +186,18 @@ export class AuthService {
 
     try {
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
+
+      // Selecciona automáticamente la configuración según el dominio del correo emisor
       const smtp = this.getSmtpConfig();
+
       const transporter = nodemailer.createTransport({
-        host: smtp.host, port: smtp.port, secure: smtp.secure,
-        auth: { user: this.configService.get('EMAIL_USER'), pass: this.configService.get('EMAIL_PASS') },
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.secure,
+        auth: { 
+          user: this.configService.get('EMAIL_USER'), 
+          pass: this.configService.get('EMAIL_PASS') 
+        },
         tls: { rejectUnauthorized: false }
       });
 
@@ -178,32 +207,48 @@ export class AuthService {
       await transporter.sendMail({
         from: `"Soporte RepoDigital" <${this.configService.get('EMAIL_USER')}>`,
         to: user.email,
-        subject: 'Recuperación de Contraseña',
-        html: `<p>Hola ${user.name}, haz clic aquí: <a href="${resetUrl}">${resetUrl}</a></p>`
+        subject: 'Recuperación de Contraseña - RepoDigital',
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
+            <h2 style="color: #0891b2;">Recuperación de Contraseña</h2>
+            <p>Hola <strong>${user.name}</strong>,</p>
+            <p>Has solicitado restablecer tu contraseña para el repositorio institucional.</p>
+            <p>Haz clic en el botón de abajo para continuar:</p>
+            <a href="${resetUrl}" style="background: #0891b2; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block;">Restablecer Contraseña</a>
+            <p style="margin-top: 20px; font-size: 12px; color: #666;">Si no solicitaste esto, ignora este correo.</p>
+          </div>
+        `
       });
-      return { message: 'Correo enviado.' };
+
+      return { message: 'Correo enviado correctamente.' };
     } catch (error) {
-      console.error("Error SMTP Render:", error);
-      throw new InternalServerErrorException("Error al enviar correo.");
+      console.error("Error crítico en Render:", error);
+      throw new InternalServerErrorException("Error de conexión SMTP con el proveedor seleccionado.");
     }
   }
 
   async resetPassword(token: string, newPassword: string) {
-    const user = await this.prisma.user.findFirst({ where: { resetToken: token, resetTokenExpiry: { gt: new Date() } } });
-    if (!user) throw new BadRequestException('Enlace inválido o expirado.');
+    const user = await this.prisma.user.findFirst({
+      where: { resetToken: token, resetTokenExpiry: { gt: new Date() } }
+    });
+
+    if (!user) throw new BadRequestException('El enlace es inválido o ha expirado.');
 
     const hashedPassword = bcrypt.hashSync(newPassword, 10);
     await this.prisma.user.update({
       where: { id: user.id },
       data: { password: hashedPassword, resetToken: null, resetTokenExpiry: null }
     });
-    return { message: 'Contraseña actualizada' };
+
+    return { message: 'Contraseña actualizada correctamente' };
   }
 
-  private getJwtToken(payload: JwtPayload, options?: JwtSignOptions) { return this.jwtService.sign(payload, options); }
+  private getJwtToken(payload: JwtPayload, options?: JwtSignOptions) {
+    return this.jwtService.sign(payload, options);
+  }
 
   private handleDBErrors(error: any): never {
     if (error.code === 'P2002') throw new BadRequestException('Correo ya registrado');
-    throw new InternalServerErrorException("Error del servidor.");
+    throw new InternalServerErrorException("Error interno del servidor.");
   }
 }
