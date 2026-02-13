@@ -14,17 +14,28 @@ import { LoginDto } from "./dto/loginDto";
 import { RefreshDto } from "./dto/refreshDto";
 import { JwtPayload } from "./interfaces/jwt-payload.interface";
 import * as crypto from 'crypto'; 
-import * as nodemailer from 'nodemailer'; 
-import * as dns from 'dns'; 
-import { promisify } from 'util';
+import { google } from 'googleapis'; // <--- USAMOS LA LIBRERÍA OFICIAL DE GOOGLE
 
 @Injectable()
 export class AuthService {
+  private oauth2Client;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-  ) {}
+  ) {
+    // Inicializamos el cliente OAuth2 una sola vez
+    this.oauth2Client = new google.auth.OAuth2(
+      this.configService.get('MAIL_CLIENT_ID'),
+      this.configService.get('MAIL_CLIENT_SECRET'),
+      'https://developers.google.com/oauthplayground' // O tu URL de redirección configurada
+    );
+
+    this.oauth2Client.setCredentials({
+      refresh_token: this.configService.get('MAIL_REFRESH_TOKEN')
+    });
+  }
 
   // --- VALIDACIONES ---
   private isDomainAllowed(email: string): boolean {
@@ -96,7 +107,26 @@ export class AuthService {
     } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  // --- ENVÍO DE CORREO (COMBINACIÓN GANADORA: IP MANUAL + PUERTO 465) ---
+  // --- MÉTODO AUXILIAR PARA CODIFICAR EL EMAIL ---
+  private makeBody(to: string, from: string, subject: string, message: string) {
+    const str = [
+      `To: ${to}`,
+      `From: ${from}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=UTF-8',
+      '',
+      message
+    ].join('\n');
+
+    return Buffer.from(str)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  }
+
+  // --- ENVÍO DE CORREO VÍA API GMAIL (NO SMTP - IMPOSIBLE DE BLOQUEAR) ---
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
@@ -107,64 +137,45 @@ export class AuthService {
     try {
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-      console.log("1. Iniciando resolución DNS IPv4...");
-      const resolve4 = promisify(dns.resolve4);
-      let gmailIp = 'smtp.gmail.com'; 
-      try {
-        const addresses = await resolve4('smtp.gmail.com');
-        if (addresses && addresses.length > 0) {
-          gmailIp = addresses[0];
-          console.log(`2. IP Resuelta: ${gmailIp}`);
-        }
-      } catch (dnsError) {
-        console.error("Fallo DNS manual:", dnsError);
-      }
-
-      console.log(`3. Conectando a ${gmailIp} en puerto 465 (SSL)...`);
-
-      // CONFIGURACIÓN: IP MANUAL + PUERTO 465
-      const transporter = nodemailer.createTransport({
-        host: gmailIp,            
-        port: 465,                // Volvemos al puerto seguro SSL
-        secure: true,             // Obligatorio true para 465
-        auth: {
-          type: 'OAuth2',
-          user: this.configService.get('MAIL_USER'),
-          clientId: this.configService.get('MAIL_CLIENT_ID'),
-          clientSecret: this.configService.get('MAIL_CLIENT_SECRET'),
-          refreshToken: this.configService.get('MAIL_REFRESH_TOKEN'),
-        },
-        tls: {
-          servername: 'smtp.gmail.com', // Vital para que el certificado coincida
-          rejectUnauthorized: false
-        },
-        connectionTimeout: 10000, // 10 segundos máximo para conectar
-        greetingTimeout: 10000,   // 10 segundos para el saludo SMTP
-        socketTimeout: 10000,
-      } as any);
-
       const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
       const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
-      await transporter.sendMail({
-        from: `"Soporte Tesis" <${this.configService.get('MAIL_USER')}>`,
-        to: user.email, 
-        subject: 'Recuperación de Contraseña',
-        html: `
-          <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-            <h2 style="color: #0056b3;">Recuperación de Contraseña</h2>
-            <p>Hola <strong>${user.name}</strong>,</p>
-            <p>Hemos recibido una solicitud para restablecer tu contraseña.</p>
-            <a href="${resetUrl}" style="background-color: #0056b3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0;">Restablecer Contraseña</a>
-          </div>
-        `
+      // 1. Obtenemos un Access Token fresco automáticamente
+      const accessToken = await this.oauth2Client.getAccessToken();
+      
+      // 2. Usamos la API de Gmail
+      const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
+
+      const emailBody = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+          <h2 style="color: #0056b3;">Recuperación de Contraseña</h2>
+          <p>Hola <strong>${user.name}</strong>,</p>
+          <p>Hemos recibido una solicitud para restablecer tu contraseña.</p>
+          <a href="${resetUrl}" style="background-color: #0056b3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0;">Restablecer Contraseña</a>
+        </div>
+      `;
+
+      const raw = this.makeBody(
+        user.email,
+        `"Soporte Tesis" <${this.configService.get('MAIL_USER')}>`,
+        'Recuperación de Contraseña',
+        emailBody
+      );
+
+      console.log("Enviando correo vía API Gmail (HTTP)...");
+      
+      await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: {
+          raw: raw,
+        },
       });
 
-      console.log("4. ¡Correo enviado con éxito!");
+      console.log("¡Correo enviado con éxito vía API!");
       return { message: 'Correo enviado correctamente.' };
     } catch (error) {
-      console.error("Error FATAL enviando correo:", error);
-      throw new InternalServerErrorException("Error al enviar el correo. Revisa los logs.");
+      console.error("Error FATAL enviando correo (API Gmail):", error);
+      throw new InternalServerErrorException("Error al enviar el correo.");
     }
   }
 
