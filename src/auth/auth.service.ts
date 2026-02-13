@@ -15,7 +15,7 @@ import { RefreshDto } from "./dto/refreshDto";
 import { JwtPayload } from "./interfaces/jwt-payload.interface";
 import * as crypto from 'crypto'; 
 import * as nodemailer from 'nodemailer'; 
-import * as dns from 'dns'; // Importamos DNS para resolver la IP manualmente
+import * as dns from 'dns'; 
 import { promisify } from 'util';
 
 @Injectable()
@@ -96,7 +96,7 @@ export class AuthService {
     } catch (error) { throw new UnauthorizedException("Token expirado"); }
   }
 
-  // --- ENVÍO DE CORREO (SOLUCIÓN FINAL: RESOLUCIÓN MANUAL DE DNS) ---
+  // --- ENVÍO DE CORREO (CAMBIO A PUERTO 587) ---
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
@@ -109,9 +109,8 @@ export class AuthService {
 
       console.log("Resolviendo DNS IPv4 para smtp.gmail.com...");
       
-      // 1. Resolvemos la IP manualmente para asegurar que sea IPv4
       const resolve4 = promisify(dns.resolve4);
-      let gmailIp = 'smtp.gmail.com'; // Fallback por defecto
+      let gmailIp = 'smtp.gmail.com'; 
       try {
         const addresses = await resolve4('smtp.gmail.com');
         if (addresses && addresses.length > 0) {
@@ -122,11 +121,11 @@ export class AuthService {
         console.error("Fallo resolución manual DNS, usando default:", dnsError);
       }
 
-      // 2. Configuramos el transporter usando la IP directamente
+      // CAMBIOS AQUÍ: PUERTO 587 Y SECURE FALSE
       const transporter = nodemailer.createTransport({
-        host: gmailIp,            // <--- Usamos la IP (ej: 142.250.1.108) en vez del nombre
-        port: 465,
-        secure: true,
+        host: gmailIp,            
+        port: 587,                // <--- CAMBIO: Puerto estándar TLS
+        secure: false,            // <--- CAMBIO: STARTTLS requiere false al inicio
         auth: {
           type: 'OAuth2',
           user: this.configService.get('MAIL_USER'),
@@ -135,7 +134,7 @@ export class AuthService {
           refreshToken: this.configService.get('MAIL_REFRESH_TOKEN'),
         },
         tls: {
-          servername: 'smtp.gmail.com', // <--- IMPORTANTE: Necesario para que el certificado SSL no falle al usar IP
+          servername: 'smtp.gmail.com', 
           rejectUnauthorized: false
         }
       } as any);
