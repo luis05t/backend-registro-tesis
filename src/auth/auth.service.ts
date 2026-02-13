@@ -14,8 +14,8 @@ import { LoginDto } from "./dto/loginDto";
 import { RefreshDto } from "./dto/refreshDto";
 import { JwtPayload } from "./interfaces/jwt-payload.interface";
 import * as crypto from 'crypto'; 
+import * as nodemailer from 'nodemailer'; // <--- CAMBIO: Usamos Nodemailer (Brevo)
 import * as deepEmailValidator from 'deep-email-validator';
-import { Resend } from 'resend'; // <--- IMPORTANTE: Usamos Resend
 
 @Injectable()
 export class AuthService {
@@ -113,50 +113,55 @@ export class AuthService {
   }
 
   /**
-   * RECUPERACIÓN DE CONTRASEÑA (USANDO RESEND)
-   * Soluciona definitivamente los errores ETIMEDOUT y ENETUNREACH en Render.
+   * RECUPERACIÓN DE CONTRASEÑA (USANDO BREVO/SMTP)
+   * Permite enviar a CUALQUIER destinatario gratis.
    */
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hora de validez
+    const resetTokenExpiry = new Date(Date.now() + 3600000); 
 
     try {
-      // 1. Guardar token en base de datos
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-      // 2. Configurar cliente de Resend
-      const resendApiKey = this.configService.get('RESEND_API_KEY');
-      if (!resendApiKey) {
-        throw new InternalServerErrorException("Falta configurar RESEND_API_KEY en las variables de entorno.");
-      }
-      const resend = new Resend(resendApiKey);
+      // --- CONFIGURACIÓN PARA BREVO ---
+      // Lee las variables que pusiste en el .env o en Render
+      const transporter = nodemailer.createTransport({
+        host: this.configService.get('EMAIL_HOST'), // smtp-relay.brevo.com
+        port: Number(this.configService.get('EMAIL_PORT')), // 587
+        secure: false, 
+        auth: {
+          user: this.configService.get('EMAIL_USER'),
+          pass: this.configService.get('EMAIL_PASS'), // La clave larga de Brevo
+        },
+        tls: {
+            rejectUnauthorized: false 
+        }
+      });
 
       const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
       const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
-      // 3. Enviar correo usando la API (Puerto 443 - Seguro y sin bloqueos)
-      await resend.emails.send({
-        from: 'RepoDigital <onboarding@resend.dev>', // Remitente por defecto de Resend (funciona sin dominio propio)
-        to: user.email,
-        subject: 'Recuperación de Contraseña - RepoDigital',
+      await transporter.sendMail({
+        from: `"Soporte Tesis" <${this.configService.get('EMAIL_USER')}>`, 
+        to: user.email, 
+        subject: 'Recuperación de Contraseña',
         html: `
-          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 5px;">
+          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
             <h2 style="color: #0891b2;">Recuperación de Contraseña</h2>
             <p>Hola <strong>${user.name}</strong>,</p>
-            <p>Has solicitado restablecer tu contraseña. Haz clic en el siguiente botón:</p>
-            <a href="${resetUrl}" style="background: #0891b2; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">Restablecer Contraseña</a>
-            <p style="margin-top: 20px; font-size: 12px; color: #666;">Si no solicitaste esto, ignora este mensaje.</p>
+            <p>Has solicitado restablecer tu contraseña. Haz clic en el enlace:</p>
+            <a href="${resetUrl}" style="background: #0891b2; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Restablecer Contraseña</a>
           </div>
         `
       });
 
       return { message: 'Correo enviado correctamente.' };
     } catch (error) {
-      console.error("Error al enviar correo con Resend:", error);
-      throw new InternalServerErrorException("Error al enviar el correo de recuperación.");
+      console.error("Error SMTP:", error);
+      throw new InternalServerErrorException("Error al enviar el correo.");
     }
   }
 
