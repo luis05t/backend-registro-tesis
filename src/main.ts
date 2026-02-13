@@ -3,6 +3,10 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { NestExpressApplication } from "@nestjs/platform-express"; 
 import { join } from "path";
+import dns from 'node:dns'; //
+
+// Forzar a Node.js a usar IPv4 primero para evitar errores ENETUNREACH en entornos como Render
+dns.setDefaultResultOrder('ipv4first'); //
 
 async function bootstrap() {
     const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -25,7 +29,6 @@ async function bootstrap() {
                 /\.onrender\.com$/, 
             ];
             
-        
             if (!origin || allowedOrigins.some(pattern => 
                 typeof pattern === 'string' ? pattern === origin : pattern.test(origin)
             )) {

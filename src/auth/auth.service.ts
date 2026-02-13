@@ -95,7 +95,7 @@ export class AuthService {
   }
 
   /**
-   * REGISTRO ADMINISTRATIVO (RESTAURADO)
+   * REGISTRO ADMINISTRATIVO
    */
   async registerAdmin(createUserDto: CreateUserDto) {
     try {
