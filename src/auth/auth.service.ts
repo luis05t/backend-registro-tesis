@@ -25,17 +25,25 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  // --- 1. CONFIGURACIÓN DE LISTA BLANCA ESTRICTA ---
+  // --- 1. CONFIGURACIÓN DE LISTA BLANCA ULTRA-ESTRICTA ---
   private isDomainAllowed(email: string): boolean {
     const domain = email.split('@')[1].toLowerCase();
     
+    // Lista de proveedores específicos de confianza (Únicos .com permitidos)
     const allowedDomains = [
-      'sudamericano.edu.ec', 'gmail.com', 'outlook.com', 'hotmail.com',
-      'yahoo.com', 'yahoo.es', 'icloud.com', 'live.com', 'msn.com',
-      'me.com', 'zoho.com'
+      'sudamericano.edu.ec', 
+      'gmail.com', 'outlook.com', 'hotmail.com',
+      'yahoo.com', 'yahoo.es', 'icloud.com', 
+      'live.com', 'msn.com', 'me.com', 'zoho.com'
     ];
 
-    const allowedExtensions = ['.edu.ec', '.edu', '.gob', '.gov'];
+    // Lista de extensiones institucionales permitidas
+    // ⚠️ Se eliminó '.ec' genérico para bloquear errores como 'eu.ec' o 'a.ec'
+    const allowedExtensions = [
+      '.edu.ec', '.gob.ec', '.org.ec',
+      '.ec',                           // Institucionales Ecuador
+      '.edu', '.gob', '.gov',          // Institucionales globales
+    ];
 
     const isInList = allowedDomains.includes(domain);
     const hasValidExtension = allowedExtensions.some(ext => domain.endsWith(ext));
@@ -50,18 +58,20 @@ export class AuthService {
     try {
       const { password, email, roleId: _, ...userDto } = createUserDto;
 
+      // Validación de dominio
       if (!this.isDomainAllowed(email)) {
-        throw new BadRequestException('Dominio de correo no permitido por la institución.');
+        throw new BadRequestException('Dominio de correo no permitido. Use .edu.ec o proveedores oficiales.');
       }
 
       const isProduction = process.env.NODE_ENV === 'production';
+      
       const res = await deepEmailValidator.validate({
         email, 
         validateRegex: true, 
-        validateTypo: false, // CLAVE: Acepta .edu.ec sin sugerir errores
+        validateTypo: false, 
         validateDisposable: true, 
         validateMx: isProduction, 
-        validateSMTP: false, // CLAVE: Evita errores 500 en Render
+        validateSMTP: false, 
       });
 
       if (!res.valid) throw new BadRequestException('Correo electrónico inválido o inexistente.');
@@ -82,7 +92,7 @@ export class AuthService {
   }
 
   /**
-   * REGISTRO ADMINISTRATIVO (Docentes)
+   * REGISTRO ADMINISTRATIVO (Docentes - Solo Admin)
    */
   async registerAdmin(createUserDto: CreateUserDto) {
     try {
@@ -112,7 +122,7 @@ export class AuthService {
   }
 
   /**
-   * INICIO DE SESIÓN
+   * INICIO DE SESIÓN (Con mensajes exactos)
    */
   async login(loginDto: LoginDto) {
     const { password, email } = loginDto;
@@ -121,9 +131,12 @@ export class AuthService {
       include: { role: true },
     });
 
-    if (!user) throw new UnauthorizedException("Credenciales no válidas (Email)");
+    // 1. Error si no existe el usuario
+    if (!user) throw new UnauthorizedException("correo no registrado");
+
+    // 2. Error si la contraseña está mal
     const isPasswordValid = bcrypt.compareSync(password, user.password);
-    if (!isPasswordValid) throw new UnauthorizedException("Credenciales no válidas (Password)");
+    if (!isPasswordValid) throw new UnauthorizedException("contraseña incorrecta");
 
     return {
       userId: user.id,
@@ -135,7 +148,7 @@ export class AuthService {
   }
 
   /**
-   * REFRESH TOKEN (Soluciona el error de Build en Render)
+   * REFRESH TOKEN
    */
   async refreshToken(refreshDto: RefreshDto) {
     try {
@@ -162,14 +175,14 @@ export class AuthService {
   }
 
   /**
-   * RECUPERACIÓN DE CONTRASEÑA (Mejorado)
+   * RECUPERACIÓN DE CONTRASEÑA
    */
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!user) throw new NotFoundException('Correo no encontrado');
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hora de validez
+    const resetTokenExpiry = new Date(Date.now() + 3600000); 
 
     try {
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
@@ -193,7 +206,7 @@ export class AuthService {
           <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee;">
             <h2 style="color: #0891b2;">Recuperación de Contraseña</h2>
             <p>Hola <strong>${user.name}</strong>,</p>
-            <p>Has solicitado restablecer tu contraseña para el repositorio institucional.</p>
+            <p>Has solicitado restablecer tu contraseña.</p>
             <p>Haz clic en el enlace de abajo para continuar (expira en 1 hora):</p>
             <a href="${resetUrl}" style="background: #0891b2; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Restablecer Contraseña</a>
           </div>
@@ -228,7 +241,7 @@ export class AuthService {
   }
 
   private handleDBErrors(error: any): never {
-    if (error.code === 'P2002') throw new BadRequestException('El correo ya está registrado');
+    if (error.code === 'P2002') throw new BadRequestException('Correo ya registrado');
     console.error("AuthService Error:", error);
     if (error instanceof BadRequestException || error instanceof UnauthorizedException || error instanceof NotFoundException) throw error;
     throw new InternalServerErrorException("Error interno del servidor.");

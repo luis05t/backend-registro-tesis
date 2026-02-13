@@ -21,11 +21,11 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     super(prismaService, { name: 'user' });
   }
 
-  // --- CONFIGURACIÓN DE LISTA BLANCA ESTRICTA ---
+  // --- CONFIGURACIÓN DE LISTA BLANCA ACTUALIZADA ---
   private isDomainAllowed(email: string): boolean {
     const domain = email.split('@')[1].toLowerCase();
     
-    // 1. Dominios específicos permitidos
+    // 1. Dominios específicos de confianza
     const allowedDomains = [
       'sudamericano.edu.ec',
       'gmail.com',
@@ -40,8 +40,12 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       'zoho.com'
     ];
 
-    // 2. Extensiones oficiales permitidas
-    const allowedExtensions = ['.edu.ec', '.edu', '.gob', '.gov'];
+    // 2. Extensiones permitidas (ACTUALIZADO para coincidir con Auth y Frontend)
+    const allowedExtensions = [
+      '.edu.ec', '.gob.ec', '.org.ec', // Institucionales Ecuador
+      '.ec',                           // Regional Ecuador
+      '.edu', '.gob', '.gov',          // Institucionales Globales
+    ];
 
     const isInList = allowedDomains.includes(domain);
     const hasValidExtension = allowedExtensions.some(ext => domain.endsWith(ext));
@@ -58,7 +62,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     // --- FILTRO 1: LISTA BLANCA ---
     if (!this.isDomainAllowed(email)) {
       throw new BadRequestException(
-        'Dominio de correo no permitido. Use el institucional (@sudamericano.edu.ec) o un proveedor autorizado.'
+        'Dominio de correo no permitido. Use .com, .ec, .edu.ec, etc.'
       );
     }
 
@@ -75,15 +79,15 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     const res = await deepEmailValidator.validate({
       email: email,
       validateRegex: true,
-      validateTypo: false,         // <--- CLAVE: Desactivado para evitar el error de "Likely typo"
+      validateTypo: false,         // Desactivado para evitar falsos positivos
       validateDisposable: true,
-      validateMx: isProduction,    // Verifica dominios reales en producción
-      validateSMTP: false,         // Obligatorio false en Render para evitar AggregateError
+      validateMx: isProduction,    // Verifica MX solo en producción
+      validateSMTP: false,         // False para evitar timeouts en la nube
     });
 
     if (!res.valid) {
       const reason = res.reason || 'inválido';
-      throw new BadRequestException(`El correo electrónico no es válido o no existe. Razón: ${reason}`);
+      throw new BadRequestException(`El correo electrónico no es válido. Razón: ${reason}`);
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -112,16 +116,16 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     // --- FILTRO 1: LISTA BLANCA ---
     if (!this.isDomainAllowed(email)) {
       throw new BadRequestException(
-        'El correo del docente debe ser institucional (@sudamericano.edu.ec) o de un proveedor comercial válido.'
+        'Dominio de correo no permitido.'
       );
     }
 
-    // --- FILTRO 2: VALIDACIÓN TÉCNICA (AJUSTE PARA RENDER) ---
+    // --- FILTRO 2: VALIDACIÓN TÉCNICA ---
     const isProduction = process.env.NODE_ENV === 'production';
     const res = await deepEmailValidator.validate({
       email: email,
       validateRegex: true,
-      validateTypo: false,         // <--- CLAVE: Evita que el sistema sugiera cambiar .edu.ec por .edu
+      validateTypo: false,
       validateDisposable: true,
       validateMx: isProduction,    
       validateSMTP: false, 
@@ -129,7 +133,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
 
     if (!res.valid) {
       const reason = res.reason || 'inválido';
-      throw new BadRequestException(`No se puede registrar al docente. Razón: ${reason}`);
+      throw new BadRequestException(`Correo inválido. Razón: ${reason}`);
     }
 
     const role = await this.prismaService.role.findFirst({
@@ -166,7 +170,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
     }
   }
 
-  // ... (findAll, findOne, update, updateImage, remove se mantienen igual)
+  // ... (Resto de métodos sin cambios: findAll, findOne, update, etc.)
 
   async findAll(paginationDto?: PaginationDto) {
     const { limit = 10, page = 1, order = 'desc' } = paginationDto || {};
