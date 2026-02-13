@@ -46,22 +46,19 @@ export class AuthService {
     return isInList || hasValidExtension;
   }
 
-  // --- 2. DETECTOR DINÁMICO DE PROVEEDORES (Optimizado para Render/Producción) ---
+  // --- 2. DETECTOR DINÁMICO DE PROVEEDORES ---
   private getSmtpConfig() {
     const emailUser = this.configService.get<string>('EMAIL_USER') || '';
     const domain = emailUser.split('@')[1]?.toLowerCase() || '';
 
-    // GMAIL / SUDAMERICANO (Usamos puerto 587 para evitar bloqueos de red en la nube)
     if (domain.includes('gmail') || domain.includes('sudamericano.edu.ec')) {
       return { host: 'smtp.gmail.com', port: 587, secure: false };
     }
 
-    // MICROSOFT (Outlook, Hotmail, Live, MSN)
     if (domain.includes('outlook') || domain.includes('hotmail') || domain.includes('live') || domain.includes('msn')) {
       return { host: 'smtp-mail.outlook.com', port: 587, secure: false };
     }
 
-    // YAHOO
     if (domain.includes('yahoo')) {
       return { host: 'smtp.mail.yahoo.com', port: 587, secure: false };
     }
@@ -69,9 +66,6 @@ export class AuthService {
     return { host: 'smtp.gmail.com', port: 587, secure: false };
   }
 
-  /**
-   * REGISTRO DE USUARIOS
-   */
   async register(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId: _, ...userDto } = createUserDto;
@@ -94,9 +88,6 @@ export class AuthService {
     } catch (error) { this.handleDBErrors(error); }
   }
 
-  /**
-   * REGISTRO ADMINISTRATIVO
-   */
   async registerAdmin(createUserDto: CreateUserDto) {
     try {
       const { password, email, roleId, ...userDto } = createUserDto;
@@ -113,9 +104,6 @@ export class AuthService {
     } catch (error) { this.handleDBErrors(error); }
   }
 
-  /**
-   * INICIO DE SESIÓN
-   */
   async login(loginDto: LoginDto) {
     const { password, email } = loginDto;
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() }, include: { role: true } });
@@ -129,9 +117,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * REFRESH TOKEN
-   */
   async refreshToken(refreshDto: RefreshDto) {
     try {
       const payload = this.jwtService.verify(refreshDto.refreshToken, { secret: this.configService.get<string>("JWT_SECRET") });
@@ -146,7 +131,7 @@ export class AuthService {
   }
 
   /**
-   * RECUPERACIÓN DE CONTRASEÑA (Solución al error ENETUNREACH)
+   * RECUPERACIÓN DE CONTRASEÑA (Solución definitiva para ENETUNREACH)
    */
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
@@ -158,36 +143,51 @@ export class AuthService {
     try {
       await this.prisma.user.update({ where: { id: user.id }, data: { resetToken, resetTokenExpiry } });
 
-      const smtp = this.getSmtpConfig();
+      const emailUser = this.configService.get('EMAIL_USER');
+      const domain = emailUser.split('@')[1]?.toLowerCase() || '';
 
-      const transporter = nodemailer.createTransport({
-        host: smtp.host,
-        port: smtp.port,
-        secure: smtp.secure,
-        family: 4, // Fuerza IPv4 para evitar el error de red en Render
-        auth: { 
-          user: this.configService.get('EMAIL_USER'), 
-          pass: this.configService.get('EMAIL_PASS') 
-        },
-        tls: {
-          rejectUnauthorized: false,
-          minVersion: 'TLSv1.2'
-        }
-      } as any);
+      // Configuración simplificada y forzada para IPv4
+      let transporterConfig: any;
+
+      if (domain.includes('gmail') || domain.includes('sudamericano.edu.ec')) {
+        transporterConfig = {
+          service: 'gmail',
+          auth: { 
+            user: emailUser, 
+            pass: this.configService.get('EMAIL_PASS') 
+          }
+        };
+      } else {
+        const smtp = this.getSmtpConfig();
+        transporterConfig = {
+          host: smtp.host,
+          port: smtp.port,
+          secure: smtp.secure,
+          family: 4, // Obligatorio para evitar ENETUNREACH en Render
+          auth: { 
+            user: emailUser, 
+            pass: this.configService.get('EMAIL_PASS') 
+          },
+          tls: { rejectUnauthorized: false }
+        };
+      }
+
+      const transporter = nodemailer.createTransport(transporterConfig);
 
       const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:5173';
       const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
       await transporter.sendMail({
-        from: `"Soporte RepoDigital" <${this.configService.get('EMAIL_USER')}>`,
+        from: `"Soporte RepoDigital" <${emailUser}>`,
         to: user.email,
         subject: 'Recuperación de Contraseña - RepoDigital',
         html: `
           <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
             <h2 style="color: #0891b2;">Recuperación de Contraseña</h2>
             <p>Hola <strong>${user.name}</strong>,</p>
-            <p>Has solicitado restablecer tu contraseña.</p>
+            <p>Haz clic en el botón de abajo para restablecer tu contraseña:</p>
             <a href="${resetUrl}" style="background: #0891b2; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block;">Restablecer Contraseña</a>
+            <p style="margin-top: 20px; font-size: 12px; color: #666;">Si no solicitaste esto, ignora este correo.</p>
           </div>
         `
       });
@@ -195,7 +195,7 @@ export class AuthService {
       return { message: 'Correo enviado correctamente.' };
     } catch (error) {
       console.error("Error crítico en Render:", error);
-      throw new InternalServerErrorException("Error de conexión SMTP.");
+      throw new InternalServerErrorException("Error de conexión con el servidor de correo.");
     }
   }
 
