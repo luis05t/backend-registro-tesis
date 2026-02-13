@@ -149,23 +149,35 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
       throw new ForbiddenException('No tienes permiso para editar este proyecto.');
     }
 
-    // --- SECCIÓN AGREGADA: SINCRONIZACIÓN DE HABILIDADES ---
-    // Extraemos 'skills' (array de IDs) del DTO
-    const { startDate, endDate, skills, ...rest } = updateProjectDto as any;
+    // --- MEJORA DE SINCRONIZACIÓN ---
+    const dto = updateProjectDto as any;
+    // Capturamos skills o projectSkills (según mande el frontend)
+    const skills = dto.skills || dto.projectSkills; 
+    const { startDate, endDate, ...rest } = dto;
+
+    // LIMPIEZA DE SEGURIDAD: Eliminamos objetos relacionales que Prisma no acepta en un update directo
+    delete rest.projectSkills;
+    delete rest.career;
+    delete rest.user;
+    delete rest.userProjects;
+    delete rest.skills; // Ya lo tenemos en la variable 'skills'
 
     return this.prismaService.$transaction(async (tx) => {
       
-      // Si el usuario envió el campo 'skills' (aunque sea un array vacío [])
+      // Si 'skills' está definido (aunque sea un array vacío []), sincronizamos
       if (skills !== undefined && Array.isArray(skills)) {
-        // 1. Borramos todas las habilidades que tiene actualmente el proyecto
+        // 1. Limpiamos la tabla intermedia por completo para este proyecto
         await tx.projectSkills.deleteMany({
           where: { projectId: id }
         });
 
-        // 2. Si hay nuevos IDs, los insertamos
+        // 2. Insertamos las nuevas (solo si el array trae IDs)
         if (skills.length > 0) {
+          // Nos aseguramos de extraer solo strings (IDs) por si vienen objetos
+          const cleanSkillIds = skills.map((s: any) => typeof s === 'object' ? s.id || s.skillId : s);
+
           await tx.projectSkills.createMany({
-            data: skills.map((skillId: string) => ({
+            data: cleanSkillIds.map((skillId: string) => ({
               projectId: id,
               skillId: skillId,
             })),
@@ -173,7 +185,7 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
         }
       }
 
-      // 3. Actualizamos los datos generales del proyecto (Título, fechas, etc.)
+      // 3. Actualizamos los datos del proyecto
       return tx.project.update({
         where: { id },
         data: {
@@ -188,7 +200,6 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
         }
       });
     });
-    // --- FIN DE SECCIÓN AGREGADA ---
   }
 
   async remove(id: string): Promise<ProjectModel> {
