@@ -29,6 +29,10 @@ model User {
   activationToken String?   // El código único que se envía por email
   // --------------------------------------------------
 
+  // --- NUEVO CAMPO PARA CAMBIO DE CONTRASEÑA OBLIGATORIO ---
+  needsPasswordChange Boolean   @default(false)
+  // ---------------------------------------------------------
+
   projects        UserProject[]
   createdProjects Project[]     @relation("UserCreatedProjects")
   

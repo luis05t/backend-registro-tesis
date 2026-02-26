@@ -33,7 +33,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
 
     const allowedExtensions = [
       '.edu.ec', '.gob.ec', '.org.ec', 
-      '.ec',                           
+      '.ec',                          
       '.edu', '.gob', '.gov',          
     ];
 
@@ -115,6 +115,7 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
           password: hashedPassword,
           roleId: role.id,
           careerId: careerId,
+          needsPasswordChange: true, // <--- AÑADIDO: Fuerza al docente a cambiar la clave
         },
         include: { role: true, career: true }
       });
@@ -191,6 +192,42 @@ export class UsersService extends BaseService<UserModel, CreateUserDto, UpdateUs
       include: { role: true, career: true } 
     });
   }
+
+  // === NUEVO MÉTODO PARA CAMBIAR CONTRASEÑA ===
+  async changePassword(id: string, oldPassword: string, newPassword: string) {
+    const user = await this.prismaService.user.findUnique({ 
+      where: { id } 
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    // Comparamos la contraseña enviada con la guardada en BD
+    const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
+    
+    if (!isPasswordValid) {
+      throw new BadRequestException(['La contraseña antigua es incorrecta.']); 
+    }
+
+    // Encriptamos la nueva contraseña
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    try {
+      await this.prismaService.user.update({
+        where: { id },
+        data: {
+          password: hashedNewPassword,
+          needsPasswordChange: false, // <--- AÑADIDO: Libera al docente una vez cambie la clave
+        },
+      });
+
+      return { message: 'Contraseña actualizada con éxito' };
+    } catch (error) {
+      this.handleDBErrors(error);
+    }
+  }
+  // === FIN NUEVO MÉTODO ===
 
   async remove(id: string) {
     const user = await this.prismaService.user.findUnique({ where: { id } });

@@ -88,6 +88,19 @@ export class UsersController {
     return this.usersService.updateImage(id, file);
   }
 
+  /**
+   * Actualiza la contraseña de un usuario logueado.
+   */
+  @Patch(':id/change-password')
+  @Auth() 
+  changePassword(
+    @Param('id') id: string,
+    @Body() body: any 
+  ) {
+    const { oldPassword, newPassword } = body;
+    return this.usersService.changePassword(id, oldPassword, newPassword);
+  }
+
   @Delete(':id')
   @Auth()
   remove(@Param('id') id: string) {

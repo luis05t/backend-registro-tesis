@@ -84,8 +84,12 @@ export class AuthService {
     if (!user) throw new UnauthorizedException("correo no registrado");
     const isPasswordValid = bcrypt.compareSync(password, user.password);
     if (!isPasswordValid) throw new UnauthorizedException("contraseña incorrecta");
+    
     return {
-      userId: user.id, userRole: user.role.name, userName: user.name,
+      userId: user.id, 
+      userRole: user.role.name, 
+      userName: user.name,
+      needsPasswordChange: user.needsPasswordChange, // <--- AÑADIDO: Envía el estado de seguridad al frontend
       accessToken: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
       refreshToken: this.getJwtToken({ id: user.id }, { expiresIn: "7d" }),
     };
@@ -96,8 +100,11 @@ export class AuthService {
       const payload = this.jwtService.verify(refreshDto.refreshToken, { secret: this.configService.get<string>("JWT_SECRET") });
       const user = await this.prisma.user.findUnique({ where: { id: payload.id }, include: { role: true } });
       if (!user) throw new UnauthorizedException("Token inválido");
+      
       return {
-        userId: user.id, userRole: user.role.name,
+        userId: user.id, 
+        userRole: user.role.name,
+        needsPasswordChange: user.needsPasswordChange, // <--- AÑADIDO: También al refrescar token
         accessToken: this.getJwtToken({ id: user.id }, { expiresIn: "2d" }),
         refreshToken: this.getJwtToken({ id: user.id }, { expiresIn: "7d" }),
       };

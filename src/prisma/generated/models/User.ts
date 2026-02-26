@@ -36,6 +36,7 @@ export type UserMinAggregateOutputType = {
   resetTokenExpiry: Date | null
   isVerified: boolean | null
   activationToken: string | null
+  needsPasswordChange: boolean | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -52,6 +53,7 @@ export type UserMaxAggregateOutputType = {
   resetTokenExpiry: Date | null
   isVerified: boolean | null
   activationToken: string | null
+  needsPasswordChange: boolean | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -68,6 +70,7 @@ export type UserCountAggregateOutputType = {
   resetTokenExpiry: number
   isVerified: number
   activationToken: number
+  needsPasswordChange: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -86,6 +89,7 @@ export type UserMinAggregateInputType = {
   resetTokenExpiry?: true
   isVerified?: true
   activationToken?: true
+  needsPasswordChange?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -102,6 +106,7 @@ export type UserMaxAggregateInputType = {
   resetTokenExpiry?: true
   isVerified?: true
   activationToken?: true
+  needsPasswordChange?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -118,6 +123,7 @@ export type UserCountAggregateInputType = {
   resetTokenExpiry?: true
   isVerified?: true
   activationToken?: true
+  needsPasswordChange?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -207,6 +213,7 @@ export type UserGroupByOutputType = {
   resetTokenExpiry: Date | null
   isVerified: boolean
   activationToken: string | null
+  needsPasswordChange: boolean
   createdAt: Date
   updatedAt: Date
   _count: UserCountAggregateOutputType | null
@@ -244,6 +251,7 @@ export type UserWhereInput = {
   resetTokenExpiry?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   isVerified?: Prisma.BoolFilter<"User"> | boolean
   activationToken?: Prisma.StringNullableFilter<"User"> | string | null
+  needsPasswordChange?: Prisma.BoolFilter<"User"> | boolean
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"User"> | Date | string
   role?: Prisma.XOR<Prisma.RoleScalarRelationFilter, Prisma.RoleWhereInput>
@@ -265,6 +273,7 @@ export type UserOrderByWithRelationInput = {
   resetTokenExpiry?: Prisma.SortOrderInput | Prisma.SortOrder
   isVerified?: Prisma.SortOrder
   activationToken?: Prisma.SortOrderInput | Prisma.SortOrder
+  needsPasswordChange?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   role?: Prisma.RoleOrderByWithRelationInput
@@ -289,6 +298,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   resetTokenExpiry?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   isVerified?: Prisma.BoolFilter<"User"> | boolean
   activationToken?: Prisma.StringNullableFilter<"User"> | string | null
+  needsPasswordChange?: Prisma.BoolFilter<"User"> | boolean
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"User"> | Date | string
   role?: Prisma.XOR<Prisma.RoleScalarRelationFilter, Prisma.RoleWhereInput>
@@ -310,6 +320,7 @@ export type UserOrderByWithAggregationInput = {
   resetTokenExpiry?: Prisma.SortOrderInput | Prisma.SortOrder
   isVerified?: Prisma.SortOrder
   activationToken?: Prisma.SortOrderInput | Prisma.SortOrder
+  needsPasswordChange?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
@@ -332,6 +343,7 @@ export type UserScalarWhereWithAggregatesInput = {
   resetTokenExpiry?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
   isVerified?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   activationToken?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
+  needsPasswordChange?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
 }
@@ -346,6 +358,7 @@ export type UserCreateInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   role: Prisma.RoleCreateNestedOneWithoutUsersInput
@@ -367,6 +380,7 @@ export type UserUncheckedCreateInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   projects?: Prisma.UserProjectUncheckedCreateNestedManyWithoutUserInput
@@ -384,6 +398,7 @@ export type UserUpdateInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   role?: Prisma.RoleUpdateOneRequiredWithoutUsersNestedInput
@@ -405,6 +420,7 @@ export type UserUncheckedUpdateInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   projects?: Prisma.UserProjectUncheckedUpdateManyWithoutUserNestedInput
@@ -424,6 +440,7 @@ export type UserCreateManyInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -438,6 +455,7 @@ export type UserUpdateManyMutationInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -454,6 +472,7 @@ export type UserUncheckedUpdateManyInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -470,6 +489,7 @@ export type UserCountOrderByAggregateInput = {
   resetTokenExpiry?: Prisma.SortOrder
   isVerified?: Prisma.SortOrder
   activationToken?: Prisma.SortOrder
+  needsPasswordChange?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -486,6 +506,7 @@ export type UserMaxOrderByAggregateInput = {
   resetTokenExpiry?: Prisma.SortOrder
   isVerified?: Prisma.SortOrder
   activationToken?: Prisma.SortOrder
+  needsPasswordChange?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -502,6 +523,7 @@ export type UserMinOrderByAggregateInput = {
   resetTokenExpiry?: Prisma.SortOrder
   isVerified?: Prisma.SortOrder
   activationToken?: Prisma.SortOrder
+  needsPasswordChange?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -686,6 +708,7 @@ export type UserCreateWithoutRoleInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   career: Prisma.CareerCreateNestedOneWithoutUsersInput
@@ -705,6 +728,7 @@ export type UserUncheckedCreateWithoutRoleInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   projects?: Prisma.UserProjectUncheckedCreateNestedManyWithoutUserInput
@@ -753,6 +777,7 @@ export type UserScalarWhereInput = {
   resetTokenExpiry?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   isVerified?: Prisma.BoolFilter<"User"> | boolean
   activationToken?: Prisma.StringNullableFilter<"User"> | string | null
+  needsPasswordChange?: Prisma.BoolFilter<"User"> | boolean
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"User"> | Date | string
 }
@@ -767,6 +792,7 @@ export type UserCreateWithoutCareerInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   role: Prisma.RoleCreateNestedOneWithoutUsersInput
@@ -786,6 +812,7 @@ export type UserUncheckedCreateWithoutCareerInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   projects?: Prisma.UserProjectUncheckedCreateNestedManyWithoutUserInput
@@ -829,6 +856,7 @@ export type UserCreateWithoutCreatedProjectsInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   role: Prisma.RoleCreateNestedOneWithoutUsersInput
@@ -849,6 +877,7 @@ export type UserUncheckedCreateWithoutCreatedProjectsInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   projects?: Prisma.UserProjectUncheckedCreateNestedManyWithoutUserInput
@@ -881,6 +910,7 @@ export type UserUpdateWithoutCreatedProjectsInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   role?: Prisma.RoleUpdateOneRequiredWithoutUsersNestedInput
@@ -901,6 +931,7 @@ export type UserUncheckedUpdateWithoutCreatedProjectsInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   projects?: Prisma.UserProjectUncheckedUpdateManyWithoutUserNestedInput
@@ -917,6 +948,7 @@ export type UserCreateWithoutProjectsInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   role: Prisma.RoleCreateNestedOneWithoutUsersInput
@@ -937,6 +969,7 @@ export type UserUncheckedCreateWithoutProjectsInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   createdProjects?: Prisma.ProjectUncheckedCreateNestedManyWithoutUserInput
@@ -969,6 +1002,7 @@ export type UserUpdateWithoutProjectsInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   role?: Prisma.RoleUpdateOneRequiredWithoutUsersNestedInput
@@ -989,6 +1023,7 @@ export type UserUncheckedUpdateWithoutProjectsInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdProjects?: Prisma.ProjectUncheckedUpdateManyWithoutUserNestedInput
@@ -1005,6 +1040,7 @@ export type UserCreateWithoutCreatedSkillsInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   role: Prisma.RoleCreateNestedOneWithoutUsersInput
@@ -1025,6 +1061,7 @@ export type UserUncheckedCreateWithoutCreatedSkillsInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   projects?: Prisma.UserProjectUncheckedCreateNestedManyWithoutUserInput
@@ -1057,6 +1094,7 @@ export type UserUpdateWithoutCreatedSkillsInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   role?: Prisma.RoleUpdateOneRequiredWithoutUsersNestedInput
@@ -1077,6 +1115,7 @@ export type UserUncheckedUpdateWithoutCreatedSkillsInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   projects?: Prisma.UserProjectUncheckedUpdateManyWithoutUserNestedInput
@@ -1094,6 +1133,7 @@ export type UserCreateManyRoleInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -1108,6 +1148,7 @@ export type UserUpdateWithoutRoleInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   career?: Prisma.CareerUpdateOneRequiredWithoutUsersNestedInput
@@ -1127,6 +1168,7 @@ export type UserUncheckedUpdateWithoutRoleInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   projects?: Prisma.UserProjectUncheckedUpdateManyWithoutUserNestedInput
@@ -1145,6 +1187,7 @@ export type UserUncheckedUpdateManyWithoutRoleInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1160,6 +1203,7 @@ export type UserCreateManyCareerInput = {
   resetTokenExpiry?: Date | string | null
   isVerified?: boolean
   activationToken?: string | null
+  needsPasswordChange?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -1174,6 +1218,7 @@ export type UserUpdateWithoutCareerInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   role?: Prisma.RoleUpdateOneRequiredWithoutUsersNestedInput
@@ -1193,6 +1238,7 @@ export type UserUncheckedUpdateWithoutCareerInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   projects?: Prisma.UserProjectUncheckedUpdateManyWithoutUserNestedInput
@@ -1211,6 +1257,7 @@ export type UserUncheckedUpdateManyWithoutCareerInput = {
   resetTokenExpiry?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   isVerified?: Prisma.BoolFieldUpdateOperationsInput | boolean
   activationToken?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  needsPasswordChange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -1276,6 +1323,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   resetTokenExpiry?: boolean
   isVerified?: boolean
   activationToken?: boolean
+  needsPasswordChange?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   role?: boolean | Prisma.RoleDefaultArgs<ExtArgs>
@@ -1298,6 +1346,7 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   resetTokenExpiry?: boolean
   isVerified?: boolean
   activationToken?: boolean
+  needsPasswordChange?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   role?: boolean | Prisma.RoleDefaultArgs<ExtArgs>
@@ -1316,6 +1365,7 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   resetTokenExpiry?: boolean
   isVerified?: boolean
   activationToken?: boolean
+  needsPasswordChange?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   role?: boolean | Prisma.RoleDefaultArgs<ExtArgs>
@@ -1334,11 +1384,12 @@ export type UserSelectScalar = {
   resetTokenExpiry?: boolean
   isVerified?: boolean
   activationToken?: boolean
+  needsPasswordChange?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "password" | "name" | "image" | "roleId" | "careerId" | "resetToken" | "resetTokenExpiry" | "isVerified" | "activationToken" | "createdAt" | "updatedAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "password" | "name" | "image" | "roleId" | "careerId" | "resetToken" | "resetTokenExpiry" | "isVerified" | "activationToken" | "needsPasswordChange" | "createdAt" | "updatedAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   role?: boolean | Prisma.RoleDefaultArgs<ExtArgs>
   career?: boolean | Prisma.CareerDefaultArgs<ExtArgs>
@@ -1377,6 +1428,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     resetTokenExpiry: Date | null
     isVerified: boolean
     activationToken: string | null
+    needsPasswordChange: boolean
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["user"]>
@@ -1818,6 +1870,7 @@ export interface UserFieldRefs {
   readonly resetTokenExpiry: Prisma.FieldRef<"User", 'DateTime'>
   readonly isVerified: Prisma.FieldRef<"User", 'Boolean'>
   readonly activationToken: Prisma.FieldRef<"User", 'String'>
+  readonly needsPasswordChange: Prisma.FieldRef<"User", 'Boolean'>
   readonly createdAt: Prisma.FieldRef<"User", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"User", 'DateTime'>
 }
