@@ -19,6 +19,10 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
     
     let whereCondition: any = {};
 
+    // COMENTADO: Se desactiva la restricción de visibilidad. 
+    // Como los proyectos ahora se crean directamente activos, ya no es necesario 
+    // filtrar los que están "pendientes".
+    /*
     if (user) {
       const userWithRole = await this.prismaService.user.findUnique({
         where: { id: user.id },
@@ -37,6 +41,7 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
         };
       }
     }
+    */
 
     const total = await this.prismaService.project.count({
       where: whereCondition
@@ -104,7 +109,12 @@ export class ProjectsService extends BaseService<ProjectModel, CreateProjectDto,
     return this.prismaService.project.create({
       data: {
         ...rest,
-        status: 'pendiente', 
+        // COMENTADO: El estado inicial ya no será 'pendiente' para evitar la verificación del admin
+        // status: 'pendiente', 
+        
+        // AGREGADO: El proyecto se crea automáticamente como 'in-progress' (activo)
+        status: 'in-progress',
+        
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
         createdBy: user.id,
